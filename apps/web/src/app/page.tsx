@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { motion } from 'framer-motion';
+import { motion, Variants } from 'framer-motion';
 import { Trophy, Zap, TrendingUp, Users, Play, Shield } from 'lucide-react';
 
 const features = [
@@ -37,13 +37,12 @@ const features = [
   },
 ];
 
-const fadeInUp = {
+const fadeInUp: Variants = {
   initial: { opacity: 0, y: 20 },
-  animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.5 },
+  animate: { opacity: 1, y: 0, transition: { duration: 0.5 } },
 };
 
-const stagger = {
+const stagger: Variants = {
   animate: {
     transition: {
       staggerChildren: 0.1,

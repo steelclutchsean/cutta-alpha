@@ -1,0 +1,510 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USER & AUTH
+// ============================================
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String?
+  displayName   String
+  avatarUrl     String?
+  balance       Decimal  @default(0) @db.Decimal(12, 2)
+  kycVerified   Boolean  @default(false)
+  stripeCustomerId String? @unique
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  paymentMethods    PaymentMethod[]
+  poolMemberships   PoolMember[]
+  commissionedPools Pool[]           @relation("Commissioner")
+  bids              Bid[]
+  ownerships        Ownership[]
+  listings          Listing[]
+  offers            Offer[]
+  buyTransactions   Transaction[]    @relation("Buyer")
+  sellTransactions  Transaction[]    @relation("Seller")
+  chatMessages      ChatMessage[]
+  notifications     Notification[]
+
+  @@index([email])
+  @@index([stripeCustomerId])
+}
+
+model PaymentMethod {
+  id                    String   @id @default(cuid())
+  userId                String
+  stripePaymentMethodId String   @unique
+  last4                 String
+  brand                 String
+  expiryMonth           Int
+  expiryYear            Int
+  isDefault             Boolean  @default(false)
+  
+  createdAt             DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ============================================
+// TOURNAMENT & TEAMS
+// ============================================
+
+model Tournament {
+  id         String           @id @default(cuid())
+  name       String
+  year       Int
+  sport      Sport
+  status     TournamentStatus @default(UPCOMING)
+  startDate  DateTime
+  endDate    DateTime
+  externalId String?          @unique
+  
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  teams  Team[]
+  games  Game[]
+  pools  Pool[]
+
+  @@unique([name, year])
+  @@index([status])
+}
+
+enum Sport {
+  NCAA_BASKETBALL
+  GOLF
+  NFL
+  OTHER
+}
+
+enum TournamentStatus {
+  UPCOMING
+  IN_PROGRESS
+  COMPLETED
+}
+
+model Team {
+  id            String   @id @default(cuid())
+  tournamentId  String
+  name          String
+  shortName     String
+  seed          Int?
+  region        String?
+  logoUrl       String?
+  externalId    String?
+  isEliminated  Boolean  @default(false)
+  eliminatedRound Int?
+  
+  createdAt     DateTime @default(now())
+
+  tournament    Tournament    @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  auctionItems  AuctionItem[]
+  homeGames     Game[]        @relation("HomeTeam")
+  awayGames     Game[]        @relation("AwayTeam")
+  wonGames      Game[]        @relation("Winner")
+
+  @@unique([tournamentId, externalId])
+  @@index([tournamentId])
+  @@index([region])
+}
+
+model Game {
+  id           String     @id @default(cuid())
+  tournamentId String
+  round        Int
+  gameNumber   Int
+  team1Id      String?
+  team2Id      String?
+  team1Score   Int?
+  team2Score   Int?
+  winnerId     String?
+  status       GameStatus @default(SCHEDULED)
+  scheduledAt  DateTime
+  startedAt    DateTime?
+  completedAt  DateTime?
+  externalId   String?    @unique
+  
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  team1      Team?      @relation("HomeTeam", fields: [team1Id], references: [id])
+  team2      Team?      @relation("AwayTeam", fields: [team2Id], references: [id])
+  winner     Team?      @relation("Winner", fields: [winnerId], references: [id])
+
+  @@index([tournamentId, round])
+  @@index([status])
+}
+
+enum GameStatus {
+  SCHEDULED
+  IN_PROGRESS
+  FINAL
+}
+
+// ============================================
+// POOLS & AUCTIONS
+// ============================================
+
+model Pool {
+  id               String     @id @default(cuid())
+  name             String
+  description      String?
+  commissionerId   String
+  status           PoolStatus @default(DRAFT)
+  buyIn            Decimal    @db.Decimal(10, 2)
+  totalPot         Decimal    @default(0) @db.Decimal(12, 2)
+  maxParticipants  Int?
+  auctionStartTime DateTime
+  tournamentId     String
+  inviteCode       String     @unique
+  streamEnabled    Boolean    @default(false)
+  livekitRoom      String?
+  externalStreamUrl String?
+  secondaryMarketEnabled Boolean @default(true)
+  
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  commissioner  User          @relation("Commissioner", fields: [commissionerId], references: [id])
+  tournament    Tournament    @relation(fields: [tournamentId], references: [id])
+  members       PoolMember[]
+  auctionItems  AuctionItem[]
+  payoutRules   PayoutRule[]
+  chatMessages  ChatMessage[]
+  payouts       Payout[]
+
+  @@index([commissionerId])
+  @@index([status])
+  @@index([inviteCode])
+}
+
+enum PoolStatus {
+  DRAFT
+  OPEN
+  LIVE
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model PoolMember {
+  id            String   @id @default(cuid())
+  poolId        String
+  userId        String
+  role          PoolRole @default(MEMBER)
+  totalSpent    Decimal  @default(0) @db.Decimal(12, 2)
+  totalWinnings Decimal  @default(0) @db.Decimal(12, 2)
+  
+  joinedAt      DateTime @default(now())
+
+  pool Pool @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([poolId, userId])
+  @@index([userId])
+}
+
+enum PoolRole {
+  COMMISSIONER
+  MEMBER
+}
+
+model PayoutRule {
+  id           String        @id @default(cuid())
+  poolId       String
+  name         String
+  description  String?
+  percentage   Decimal       @db.Decimal(5, 2)
+  trigger      PayoutTrigger
+  triggerValue String?
+  order        Int
+  
+  createdAt    DateTime      @default(now())
+
+  pool Pool @relation(fields: [poolId], references: [id], onDelete: Cascade)
+
+  @@index([poolId])
+}
+
+enum PayoutTrigger {
+  CHAMPIONSHIP_WIN
+  FINAL_FOUR
+  ELITE_EIGHT
+  SWEET_SIXTEEN
+  ROUND_OF_32
+  ROUND_OF_64
+  FIRST_FOUR
+  UPSET_BONUS
+  HIGHEST_SEED_WIN
+  CUSTOM
+}
+
+// ============================================
+// AUCTION ITEMS & BIDS
+// ============================================
+
+model AuctionItem {
+  id              String            @id @default(cuid())
+  poolId          String
+  teamId          String
+  status          AuctionItemStatus @default(PENDING)
+  startingBid     Decimal           @default(1) @db.Decimal(10, 2)
+  currentBid      Decimal?          @db.Decimal(10, 2)
+  currentBidderId String?
+  winningBid      Decimal?          @db.Decimal(10, 2)
+  winnerId        String?
+  order           Int
+  auctionedAt     DateTime?
+  
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  pool       Pool        @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  team       Team        @relation(fields: [teamId], references: [id])
+  bids       Bid[]
+  ownerships Ownership[]
+
+  @@unique([poolId, teamId])
+  @@index([poolId, status])
+  @@index([teamId])
+}
+
+enum AuctionItemStatus {
+  PENDING
+  ACTIVE
+  SOLD
+  UNSOLD
+}
+
+model Bid {
+  id            String   @id @default(cuid())
+  auctionItemId String
+  userId        String
+  amount        Decimal  @db.Decimal(10, 2)
+  isWinning     Boolean  @default(false)
+  
+  createdAt     DateTime @default(now())
+
+  auctionItem AuctionItem @relation(fields: [auctionItemId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([auctionItemId])
+  @@index([userId])
+}
+
+// ============================================
+// OWNERSHIP & SECONDARY MARKET
+// ============================================
+
+model Ownership {
+  id            String          @id @default(cuid())
+  userId        String
+  auctionItemId String
+  percentage    Decimal         @db.Decimal(5, 2)
+  purchasePrice Decimal         @db.Decimal(10, 2)
+  source        OwnershipSource
+  
+  acquiredAt    DateTime        @default(now())
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  auctionItem AuctionItem @relation(fields: [auctionItemId], references: [id], onDelete: Cascade)
+  listings    Listing[]
+
+  @@index([userId])
+  @@index([auctionItemId])
+}
+
+enum OwnershipSource {
+  AUCTION
+  SECONDARY_MARKET
+}
+
+model Listing {
+  id               String        @id @default(cuid())
+  ownershipId      String
+  sellerId         String
+  percentageForSale Decimal      @db.Decimal(5, 2)
+  askingPrice      Decimal       @db.Decimal(10, 2)
+  acceptingOffers  Boolean       @default(true)
+  status           ListingStatus @default(ACTIVE)
+  expiresAt        DateTime?
+  
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  ownership    Ownership     @relation(fields: [ownershipId], references: [id], onDelete: Cascade)
+  seller       User          @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  offers       Offer[]
+  transactions Transaction[]
+
+  @@index([sellerId])
+  @@index([status])
+}
+
+enum ListingStatus {
+  ACTIVE
+  SOLD
+  CANCELLED
+  EXPIRED
+}
+
+model Offer {
+  id        String      @id @default(cuid())
+  listingId String
+  buyerId   String
+  amount    Decimal     @db.Decimal(10, 2)
+  status    OfferStatus @default(PENDING)
+  expiresAt DateTime
+  
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  buyer   User    @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@index([buyerId])
+  @@index([status])
+}
+
+enum OfferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
+// ============================================
+// TRANSACTIONS & PAYOUTS
+// ============================================
+
+model Transaction {
+  id                   String            @id @default(cuid())
+  type                 TransactionType
+  buyerId              String?
+  sellerId             String?
+  listingId            String?
+  auctionItemId        String?
+  amount               Decimal           @db.Decimal(12, 2)
+  platformFee          Decimal           @default(0) @db.Decimal(10, 2)
+  netAmount            Decimal           @db.Decimal(12, 2)
+  stripePaymentIntentId String?          @unique
+  status               TransactionStatus @default(PENDING)
+  
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  buyer   User?    @relation("Buyer", fields: [buyerId], references: [id])
+  seller  User?    @relation("Seller", fields: [sellerId], references: [id])
+  listing Listing? @relation(fields: [listingId], references: [id])
+
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([status])
+  @@index([type])
+}
+
+enum TransactionType {
+  AUCTION_PURCHASE
+  SECONDARY_PURCHASE
+  PAYOUT
+  DEPOSIT
+  WITHDRAWAL
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+model Payout {
+  id        String       @id @default(cuid())
+  poolId    String
+  userId    String
+  amount    Decimal      @db.Decimal(12, 2)
+  reason    String
+  triggerId String?
+  status    PayoutStatus @default(PENDING)
+  
+  createdAt DateTime     @default(now())
+
+  pool Pool @relation(fields: [poolId], references: [id], onDelete: Cascade)
+
+  @@index([poolId])
+  @@index([userId])
+  @@index([status])
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSED
+  FAILED
+}
+
+// ============================================
+// CHAT & NOTIFICATIONS
+// ============================================
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  poolId    String
+  userId    String
+  content   String
+  reactions Json     @default("{}")
+  
+  createdAt DateTime @default(now())
+
+  pool Pool @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([poolId, createdAt])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String
+  data      Json?
+  read      Boolean          @default(false)
+  
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+  @@index([createdAt])
+}
+
+enum NotificationType {
+  AUCTION_WON
+  AUCTION_OUTBID
+  AUCTION_STARTING
+  OFFER_RECEIVED
+  OFFER_ACCEPTED
+  OFFER_REJECTED
+  PAYOUT_RECEIVED
+  GAME_STARTING
+  TEAM_WON
+  TEAM_ELIMINATED
+  POOL_INVITE
+}
+

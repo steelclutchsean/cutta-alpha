@@ -1,0 +1,179 @@
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3001';
+
+interface FetchOptions extends RequestInit {
+  token?: string;
+}
+
+class ApiError extends Error {
+  constructor(
+    public statusCode: number,
+    message: string,
+    public code?: string
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+async function fetchApi<T>(
+  endpoint: string,
+  options: FetchOptions = {}
+): Promise<T> {
+  const { token, ...fetchOptions } = options;
+
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    ...fetchOptions.headers,
+  };
+
+  if (token) {
+    (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${API_URL}${endpoint}`, {
+    ...fetchOptions,
+    headers,
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new ApiError(response.status, data.error || 'An error occurred', data.code);
+  }
+
+  return data;
+}
+
+// Auth
+export const authApi = {
+  signup: (data: { email: string; password: string; displayName: string }) =>
+    fetchApi<{ user: any; token: string }>('/auth/signup', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  login: (data: { email: string; password: string }) =>
+    fetchApi<{ user: any; token: string }>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  me: (token: string) =>
+    fetchApi<any>('/auth/me', { token }),
+};
+
+// Users
+export const usersApi = {
+  getProfile: (token: string) =>
+    fetchApi<any>('/users/profile', { token }),
+
+  updateProfile: (token: string, data: { displayName?: string; avatarUrl?: string }) =>
+    fetchApi<any>('/users/profile', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+      token,
+    }),
+
+  getPaymentMethods: (token: string) =>
+    fetchApi<any[]>('/users/payment-methods', { token }),
+
+  getBalance: (token: string) =>
+    fetchApi<{ balance: number; transactions: any[] }>('/users/balance', { token }),
+
+  withdraw: (token: string, amount: number) =>
+    fetchApi<any>('/users/withdraw', {
+      method: 'POST',
+      body: JSON.stringify({ amount }),
+      token,
+    }),
+};
+
+// Pools
+export const poolsApi = {
+  list: (token: string) =>
+    fetchApi<any[]>('/pools', { token }),
+
+  get: (token: string, id: string) =>
+    fetchApi<any>(`/pools/${id}`, { token }),
+
+  create: (token: string, data: any) =>
+    fetchApi<any>('/pools', {
+      method: 'POST',
+      body: JSON.stringify(data),
+      token,
+    }),
+
+  join: (token: string, inviteCode: string) =>
+    fetchApi<any>('/pools/join', {
+      method: 'POST',
+      body: JSON.stringify({ inviteCode }),
+      token,
+    }),
+
+  getStandings: (token: string, id: string) =>
+    fetchApi<any[]>(`/pools/${id}/standings`, { token }),
+};
+
+// Auction
+export const auctionApi = {
+  getState: (token: string, poolId: string) =>
+    fetchApi<any>(`/auction/${poolId}/state`, { token }),
+
+  placeBid: (token: string, auctionItemId: string, amount: number) =>
+    fetchApi<any>('/auction/bid', {
+      method: 'POST',
+      body: JSON.stringify({ auctionItemId, amount }),
+      token,
+    }),
+
+  start: (token: string, poolId: string) =>
+    fetchApi<any>(`/auction/${poolId}/start`, {
+      method: 'POST',
+      token,
+    }),
+
+  next: (token: string, poolId: string) =>
+    fetchApi<any>(`/auction/${poolId}/next`, {
+      method: 'POST',
+      token,
+    }),
+};
+
+// Market
+export const marketApi = {
+  getListings: (token: string, params?: { poolId?: string }) =>
+    fetchApi<any[]>(`/market/listings${params?.poolId ? `?poolId=${params.poolId}` : ''}`, { token }),
+
+  getMyListings: (token: string) =>
+    fetchApi<any[]>('/market/my-listings', { token }),
+
+  createListing: (token: string, data: any) =>
+    fetchApi<any>('/market/listings', {
+      method: 'POST',
+      body: JSON.stringify(data),
+      token,
+    }),
+
+  buyNow: (token: string, listingId: string) =>
+    fetchApi<any>(`/market/listings/${listingId}/buy`, {
+      method: 'POST',
+      token,
+    }),
+
+  makeOffer: (token: string, listingId: string, amount: number) =>
+    fetchApi<any>('/market/offers', {
+      method: 'POST',
+      body: JSON.stringify({ listingId, amount }),
+      token,
+    }),
+};
+
+// Tournaments
+export const tournamentsApi = {
+  list: () => fetchApi<any[]>('/tournaments'),
+  get: (id: string) => fetchApi<any>(`/tournaments/${id}`),
+  getBracket: (id: string) => fetchApi<any>(`/tournaments/${id}/bracket`),
+};
+
+export { ApiError };
+

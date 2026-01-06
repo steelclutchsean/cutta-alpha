@@ -22,6 +22,7 @@ export default function DashboardPage() {
 
   const activePools = pools?.filter((p: any) => p.status === 'LIVE' || p.status === 'IN_PROGRESS') || [];
   const upcomingPools = pools?.filter((p: any) => p.status === 'OPEN' || p.status === 'DRAFT') || [];
+  const transactions = balanceData?.transactions ?? [];
 
   return (
     <div className="space-y-8">
@@ -138,9 +139,9 @@ export default function DashboardPage() {
       <section>
         <h2 className="text-lg font-semibold mb-4">Recent Activity</h2>
         <div className="card">
-          {balanceData?.transactions?.length > 0 ? (
+          {transactions.length > 0 ? (
             <div className="divide-y divide-dark-600">
-              {balanceData.transactions.slice(0, 5).map((tx: any) => (
+              {transactions.slice(0, 5).map((tx: any) => (
                 <div key={tx.id} className="py-3 flex items-center justify-between">
                   <div>
                     <p className="font-medium">{getTransactionLabel(tx.type)}</p>

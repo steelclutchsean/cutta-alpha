@@ -1,6 +1,7 @@
 import { Server as HttpServer } from 'http';
 import { Server, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
+import { verifyToken } from '@clerk/express';
 import { prisma } from '@cutta/db';
 import { config } from '../config/index.js';
 import type { ClientToServerEvents, ServerToClientEvents, SocketData } from '@cutta/shared';
@@ -23,18 +24,77 @@ export function initializeSocket(httpServer: HttpServer): Server {
         return next(new Error('Authentication required'));
       }
 
-      const decoded = jwt.verify(token, config.jwtSecret) as { userId: string };
+      let userId: string | null = null;
 
-      const user = await prisma.user.findUnique({
-        where: { id: decoded.userId },
-        select: { id: true, displayName: true },
-      });
+      // Try Clerk token verification first
+      if (process.env.CLERK_SECRET_KEY) {
+        try {
+          const verified = await verifyToken(token, {
+            secretKey: process.env.CLERK_SECRET_KEY,
+          });
 
-      if (!user) {
-        return next(new Error('User not found'));
+          if (verified && verified.sub) {
+            // Find user by Clerk ID
+            const user = await prisma.user.findFirst({
+              where: { clerkId: verified.sub },
+              select: { id: true, displayName: true },
+            });
+
+            if (user) {
+              userId = user.id;
+            }
+          }
+        } catch (clerkError) {
+          console.log('Socket: Clerk token verification failed, trying legacy JWT');
+        }
       }
 
-      socket.data.userId = user.id;
+      // Development mode: decode Clerk JWT without verification (keyless mode)
+      if (!userId && config.nodeEnv === 'development' && !process.env.CLERK_SECRET_KEY) {
+        try {
+          const parts = token.split('.');
+          if (parts.length === 3) {
+            const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
+            const clerkId = payload.sub;
+
+            if (clerkId) {
+              const user = await prisma.user.findFirst({
+                where: { clerkId },
+                select: { id: true, displayName: true },
+              });
+
+              if (user) {
+                userId = user.id;
+              }
+            }
+          }
+        } catch (devError) {
+          console.log('Socket: Failed to decode Clerk keyless token');
+        }
+      }
+
+      // Fall back to legacy JWT verification
+      if (!userId) {
+        try {
+          const decoded = jwt.verify(token, config.jwtSecret) as { userId: string };
+          const user = await prisma.user.findUnique({
+            where: { id: decoded.userId },
+            select: { id: true, displayName: true },
+          });
+
+          if (user) {
+            userId = user.id;
+          }
+        } catch (jwtError) {
+          // JWT verification also failed
+        }
+      }
+
+      if (!userId) {
+        return next(new Error('Invalid token'));
+      }
+
+      socket.data.userId = userId;
       next();
     } catch (error) {
       next(new Error('Invalid token'));

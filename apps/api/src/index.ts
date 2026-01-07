@@ -38,8 +38,36 @@ app.use('/webhooks/stripe', express.raw({ type: 'application/json' }));
 app.use(express.json());
 
 // Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+app.get('/health', async (req, res) => {
+  const health: Record<string, any> = {
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    checks: {},
+  };
+
+  // Check database
+  try {
+    const { prisma } = await import('@cutta/db');
+    await prisma.$queryRaw`SELECT 1`;
+    health.checks.database = 'ok';
+  } catch (error) {
+    health.checks.database = 'error';
+    health.status = 'degraded';
+  }
+
+  // Check Redis (if configured)
+  if (process.env.REDIS_URL) {
+    try {
+      // Basic check - in production you'd ping Redis
+      health.checks.redis = 'configured';
+    } catch (error) {
+      health.checks.redis = 'error';
+    }
+  }
+
+  const statusCode = health.status === 'ok' ? 200 : 503;
+  res.status(statusCode).json(health);
 });
 
 // API routes

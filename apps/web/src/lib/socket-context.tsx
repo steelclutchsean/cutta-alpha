@@ -7,6 +7,7 @@ import {
   useState,
   ReactNode,
   useCallback,
+  useRef,
 } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from './auth-context';
@@ -29,12 +30,13 @@ const SocketContext = createContext<SocketContextType | undefined>(undefined);
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:3001';
 
 export function SocketProvider({ children }: { children: ReactNode }) {
-  const { token } = useAuth();
+  const { token, getValidToken, isSignedIn } = useAuth();
   const [socket, setSocket] = useState<TypedSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const connectionAttemptRef = useRef(0);
 
   useEffect(() => {
-    if (!token) {
+    if (!isSignedIn) {
       if (socket) {
         socket.disconnect();
         setSocket(null);
@@ -43,31 +45,65 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const newSocket: TypedSocket = io(WS_URL, {
-      auth: { token },
-      transports: ['websocket', 'polling'],
-    });
+    // Get a fresh token before connecting
+    const connectWithFreshToken = async () => {
+      const freshToken = await getValidToken();
+      if (!freshToken) {
+        console.log('No token available for socket connection');
+        return;
+      }
 
-    newSocket.on('connect', () => {
-      console.log('Socket connected');
-      setIsConnected(true);
-    });
+      const attemptId = ++connectionAttemptRef.current;
 
-    newSocket.on('disconnect', () => {
-      console.log('Socket disconnected');
-      setIsConnected(false);
-    });
+      const newSocket: TypedSocket = io(WS_URL, {
+        auth: { token: freshToken },
+        transports: ['websocket', 'polling'],
+      });
 
-    newSocket.on('error', (error) => {
-      console.error('Socket error:', error);
-    });
+      newSocket.on('connect', () => {
+        if (connectionAttemptRef.current === attemptId) {
+          console.log('Socket connected');
+          setIsConnected(true);
+        }
+      });
 
-    setSocket(newSocket);
+      newSocket.on('disconnect', () => {
+        console.log('Socket disconnected');
+        setIsConnected(false);
+      });
+
+      newSocket.on('error', (error) => {
+        console.error('Socket error:', error);
+      });
+
+      newSocket.on('connect_error', async (error) => {
+        console.error('Socket connection error:', error.message);
+        // If auth failed, try to reconnect with a fresh token
+        if (error.message.includes('Invalid token') || error.message.includes('Authentication')) {
+          const newToken = await getValidToken();
+          if (newToken && connectionAttemptRef.current === attemptId) {
+            newSocket.auth = { token: newToken };
+            newSocket.connect();
+          }
+        }
+      });
+
+      if (connectionAttemptRef.current === attemptId) {
+        setSocket(newSocket);
+      } else {
+        newSocket.disconnect();
+      }
+    };
+
+    connectWithFreshToken();
 
     return () => {
-      newSocket.disconnect();
+      connectionAttemptRef.current++;
+      if (socket) {
+        socket.disconnect();
+      }
     };
-  }, [token]);
+  }, [isSignedIn, getValidToken]);
 
   const joinPool = useCallback(
     (poolId: string) => {

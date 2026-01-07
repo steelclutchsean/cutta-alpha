@@ -15,6 +15,7 @@ import {
   X,
   Bell,
   Shield,
+  User,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState } from 'react';
@@ -27,8 +28,17 @@ const navigation = [
   { name: 'My Teams', href: '/my-teams', icon: Shield },
   { name: 'Market', href: '/market', icon: TrendingUp },
   { name: 'Wallet', href: '/wallet', icon: Wallet },
+  { name: 'Profile', href: '/profile', icon: User },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
+
+// Helper to get user avatar URL based on avatar type
+function getUserAvatarUrl(user: { avatarType?: string; presetAvatarId?: string | null; avatarUrl?: string | null }): string | null {
+  if (user.avatarType === 'PRESET' && user.presetAvatarId) {
+    return `/avatars/${user.presetAvatarId}.svg`;
+  }
+  return user.avatarUrl || null;
+}
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -136,9 +146,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               </button>
 
               {/* Profile */}
-              <Link href="/settings" className="flex items-center gap-2">
-                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary-500 to-gold-500 flex items-center justify-center text-dark-900 font-bold shadow-glass-glow">
-                  {user.displayName[0].toUpperCase()}
+              <Link href="/profile" className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl overflow-hidden bg-gradient-to-br from-primary-500 to-gold-500 flex items-center justify-center text-dark-900 font-bold shadow-glass-glow">
+                  {getUserAvatarUrl(user) ? (
+                    <img
+                      src={getUserAvatarUrl(user)!}
+                      alt={user.displayName}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    user.displayName[0].toUpperCase()
+                  )}
                 </div>
               </Link>
             </div>

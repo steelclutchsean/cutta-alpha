@@ -1,0 +1,23 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg20" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4e342e"/>
+      <stop offset="100%" style="stop-color:#3e2723"/>
+    </linearGradient>
+    <linearGradient id="helmet" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffd54f"/>
+      <stop offset="100%" style="stop-color:#ffb300"/>
+    </linearGradient>
+  </defs>
+  <circle cx="100" cy="100" r="100" fill="url(#bg20)"/>
+  <path d="M50 120 L50 70 Q50 40 100 40 Q150 40 150 70 L150 120 Q150 140 100 150 Q50 140 50 120" fill="url(#helmet)"/>
+  <rect x="45" y="90" width="110" height="35" fill="#8d6e63"/>
+  <rect x="60" y="95" width="30" height="25" rx="5" fill="#1a1a1a"/>
+  <rect x="110" y="95" width="30" height="25" rx="5" fill="#1a1a1a"/>
+  <circle cx="75" cy="107" r="8" fill="#fff"/>
+  <circle cx="125" cy="107" r="8" fill="#fff"/>
+  <circle cx="75" cy="107" r="4" fill="#4e342e"/>
+  <circle cx="125" cy="107" r="4" fill="#4e342e"/>
+  <rect x="95" y="55" width="10" height="25" fill="#e53935"/>
+</svg>
+

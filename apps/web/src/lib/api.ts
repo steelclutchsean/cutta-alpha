@@ -64,15 +64,34 @@ export const authApi = {
 
 // Users
 export const usersApi = {
+  me: (token: string) =>
+    fetchApi<any>('/users/me', { token }),
+
+  syncClerkUser: (token: string, data: { clerkId: string; email: string; displayName: string; avatarUrl?: string | null }) =>
+    fetchApi<any>('/users/sync', {
+      method: 'POST',
+      body: JSON.stringify(data),
+      token,
+    }),
+
   getProfile: (token: string) =>
     fetchApi<any>('/users/profile', { token }),
 
-  updateProfile: (token: string, data: { displayName?: string; avatarUrl?: string }) =>
+  updateProfile: (token: string, data: { 
+    displayName?: string; 
+    avatarUrl?: string | null; 
+    avatarType?: 'CUSTOM' | 'PRESET' | 'CLERK';
+    presetAvatarId?: string | null;
+    phone?: string | null;
+  }) =>
     fetchApi<any>('/users/profile', {
       method: 'PATCH',
       body: JSON.stringify(data),
       token,
     }),
+
+  getPresetAvatars: (token: string) =>
+    fetchApi<Array<{ id: string; name: string; category: string; url: string }>>('/users/avatars/presets', { token }),
 
   getPaymentMethods: (token: string) =>
     fetchApi<any[]>('/users/payment-methods', { token }),
@@ -102,6 +121,42 @@ export const usersApi = {
 
   getOwnerships: (token: string, poolId?: string) =>
     fetchApi<any[]>(`/users/ownerships${poolId ? `?poolId=${poolId}` : ''}`, { token }),
+
+  getTransactionAnalytics: (token: string) =>
+    fetchApi<{
+      summary: {
+        totalSpent: number;
+        totalEarned: number;
+        totalWinnings: number;
+        netPnL: number;
+        transactionCount: number;
+      };
+      byType: Array<{ type: string; count: number; total: number }>;
+      byPool: Array<{ poolId: string; poolName: string; spent: number; earned: number; winnings: number }>;
+      monthlyTrends: Array<{ month: string; spent: number; earned: number; winnings: number }>;
+    }>('/users/transactions/analytics', { token }),
+
+  getTransactions: (token: string, params?: { 
+    type?: string; 
+    poolId?: string; 
+    startDate?: string; 
+    endDate?: string;
+    limit?: number;
+    offset?: number;
+  }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.type) searchParams.set('type', params.type);
+    if (params?.poolId) searchParams.set('poolId', params.poolId);
+    if (params?.startDate) searchParams.set('startDate', params.startDate);
+    if (params?.endDate) searchParams.set('endDate', params.endDate);
+    if (params?.limit) searchParams.set('limit', params.limit.toString());
+    if (params?.offset) searchParams.set('offset', params.offset.toString());
+    const queryString = searchParams.toString();
+    return fetchApi<{
+      transactions: any[];
+      pagination: { total: number; limit: number; offset: number };
+    }>(`/users/transactions${queryString ? `?${queryString}` : ''}`, { token });
+  },
 };
 
 // Pools
@@ -222,6 +277,31 @@ export const auctionApi = {
       method: 'POST',
       token,
     }),
+
+  // Wheel spin auction endpoints
+  wheelSpinInit: (token: string, poolId: string) =>
+    fetchApi<any>(`/auction/${poolId}/wheel-spin/init`, {
+      method: 'POST',
+      token,
+    }),
+
+  wheelSpinSpin: (token: string, poolId: string) =>
+    fetchApi<any>(`/auction/${poolId}/wheel-spin/spin`, {
+      method: 'POST',
+      token,
+    }),
+
+  wheelSpinComplete: (token: string, poolId: string) =>
+    fetchApi<any>(`/auction/${poolId}/wheel-spin/complete`, {
+      method: 'POST',
+      token,
+    }),
+
+  getWheelSpinState: (token: string, poolId: string) =>
+    fetchApi<any>(`/auction/${poolId}/wheel-spin/state`, { token }),
+
+  getMatchupBrief: (token: string, poolId: string) =>
+    fetchApi<{ matchupBrief: string | null }>(`/auction/${poolId}/matchup-brief`, { token }),
 };
 
 // Market

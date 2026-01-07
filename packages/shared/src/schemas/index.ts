@@ -12,31 +12,47 @@ export const loginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 });
 
+// Payout trigger enum with all triggers (including NFL)
+export const payoutTriggerEnum = z.enum([
+  'CHAMPIONSHIP_WIN',
+  'FINAL_FOUR',
+  'ELITE_EIGHT',
+  'SWEET_SIXTEEN',
+  'ROUND_OF_32',
+  'ROUND_OF_64',
+  'FIRST_FOUR',
+  'UPSET_BONUS',
+  'HIGHEST_SEED_WIN',
+  'CUSTOM',
+  // NFL-specific triggers
+  'SUPER_BOWL_WIN',
+  'CONFERENCE_CHAMPIONSHIP',
+  'DIVISIONAL_ROUND',
+  'WILD_CARD_WIN',
+]);
+
+// Auction mode enum
+export const auctionModeEnum = z.enum(['TRADITIONAL', 'WHEEL_SPIN']);
+
 // Pool schemas
 export const createPoolSchema = z.object({
   name: z.string().min(3, 'Pool name must be at least 3 characters').max(100),
   description: z.string().max(500).optional(),
   buyIn: z.number().min(0, 'Buy-in cannot be negative'),
   maxParticipants: z.number().min(2).max(1000).optional(),
-  auctionStartTime: z.string().datetime(),
+  auctionStartTime: z.string().datetime().optional(), // Optional when autoStartAuction is true
   tournamentId: z.string().min(1, 'Tournament ID is required'), // CUIDs, not UUIDs
   secondaryMarketEnabled: z.boolean().default(true),
+  auctionMode: auctionModeEnum.default('TRADITIONAL'),
+  isPublic: z.boolean().default(false),
+  autoStartAuction: z.boolean().default(false),
+  auctionBudget: z.number().min(0).optional(), // Per-member budget (null = unlimited)
+  budgetEnabled: z.boolean().default(false),
   payoutRules: z.array(z.object({
     name: z.string().min(1).max(100),
     description: z.string().max(500).optional(),
     percentage: z.number().min(0).max(100),
-    trigger: z.enum([
-      'CHAMPIONSHIP_WIN',
-      'FINAL_FOUR',
-      'ELITE_EIGHT',
-      'SWEET_SIXTEEN',
-      'ROUND_OF_32',
-      'ROUND_OF_64',
-      'FIRST_FOUR',
-      'UPSET_BONUS',
-      'HIGHEST_SEED_WIN',
-      'CUSTOM',
-    ]),
+    trigger: payoutTriggerEnum,
     triggerValue: z.string().optional(),
   })).optional(),
 });
@@ -52,18 +68,7 @@ export const payoutRuleSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().max(500).optional(),
   percentage: z.number().min(0).max(100),
-  trigger: z.enum([
-    'CHAMPIONSHIP_WIN',
-    'FINAL_FOUR',
-    'ELITE_EIGHT',
-    'SWEET_SIXTEEN',
-    'ROUND_OF_32',
-    'ROUND_OF_64',
-    'FIRST_FOUR',
-    'UPSET_BONUS',
-    'HIGHEST_SEED_WIN',
-    'CUSTOM',
-  ]),
+  trigger: payoutTriggerEnum,
   triggerValue: z.string().optional(),
 });
 
@@ -132,4 +137,6 @@ export type AddPaymentMethodInput = z.infer<typeof addPaymentMethodSchema>;
 export type WithdrawInput = z.infer<typeof withdrawSchema>;
 export type SendMessageInput = z.infer<typeof sendMessageSchema>;
 export type SendReactionInput = z.infer<typeof sendReactionSchema>;
+export type AuctionModeInput = z.infer<typeof auctionModeEnum>;
+export type PayoutTriggerInput = z.infer<typeof payoutTriggerEnum>;
 

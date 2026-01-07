@@ -50,16 +50,16 @@ export function usePoolStandings(poolId: string | null) {
 // Auction
 export function useAuctionState(poolId: string | null) {
   const { token } = useAuth();
-  const { socket, joinPool, leavePool } = useSocket();
+  const { socket, isConnected, joinPool, leavePool } = useSocket();
   const { setAuctionState, updateTimeRemaining, addMessage, addReaction, setTypingUser, removeTypingUser } =
     useAuctionStore();
 
-  // Join pool room on mount
+  // Join pool room when socket connects
   useEffect(() => {
-    if (!poolId) return;
+    if (!poolId || !isConnected) return;
     joinPool(poolId);
     return () => leavePool(poolId);
-  }, [poolId, joinPool, leavePool]);
+  }, [poolId, isConnected, joinPool, leavePool]);
 
   // Load initial state
   useEffect(() => {
@@ -134,6 +134,40 @@ export function useUserBalance() {
 
 export function usePaymentMethods() {
   return useAuthenticatedSWR('payment-methods', usersApi.getPaymentMethods);
+}
+
+export function usePresetAvatars() {
+  return useAuthenticatedSWR('preset-avatars', usersApi.getPresetAvatars);
+}
+
+export function useTransactionAnalytics() {
+  return useAuthenticatedSWR('transaction-analytics', usersApi.getTransactionAnalytics);
+}
+
+export function useTransactions(params?: { 
+  type?: string; 
+  poolId?: string; 
+  startDate?: string; 
+  endDate?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const { token } = useAuth();
+  const key = params 
+    ? `transactions-${JSON.stringify(params)}` 
+    : 'transactions';
+  
+  return useSWR(
+    token ? [key, token] : null,
+    ([, authToken]) => usersApi.getTransactions(authToken, params)
+  );
+}
+
+export function useUserOwnerships(poolId?: string) {
+  return useAuthenticatedSWR(
+    poolId ? `ownerships-${poolId}` : 'ownerships',
+    (token) => usersApi.getOwnerships(token, poolId)
+  );
 }
 
 // Debounce hook

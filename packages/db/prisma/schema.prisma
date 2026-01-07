@@ -13,10 +13,14 @@ datasource db {
 
 model User {
   id            String   @id @default(cuid())
+  clerkId       String?  @unique  // Clerk user ID for OAuth/SSO
   email         String   @unique
   passwordHash  String?
   displayName   String
   avatarUrl     String?
+  avatarType    AvatarType @default(CUSTOM)
+  presetAvatarId String?  // For preset avatar selection (e.g., "avatar-01")
+  phone         String?
   balance       Decimal  @default(0) @db.Decimal(12, 2)
   kycVerified   Boolean  @default(false)
   stripeCustomerId String? @unique
@@ -38,7 +42,14 @@ model User {
   notifications     Notification[]
 
   @@index([email])
+  @@index([clerkId])
   @@index([stripeCustomerId])
+}
+
+enum AvatarType {
+  CUSTOM     // User-uploaded image (uses avatarUrl)
+  PRESET     // Pre-defined avatar from our collection
+  CLERK      // Synced from Clerk provider
 }
 
 model PaymentMethod {
@@ -136,6 +147,7 @@ model Game {
   startedAt    DateTime?
   completedAt  DateTime?
   externalId   String?    @unique
+  matchupBrief String?    @db.Text
   
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
@@ -160,21 +172,26 @@ enum GameStatus {
 // ============================================
 
 model Pool {
-  id               String     @id @default(cuid())
+  id               String      @id @default(cuid())
   name             String
   description      String?
   commissionerId   String
-  status           PoolStatus @default(DRAFT)
-  buyIn            Decimal    @db.Decimal(10, 2)
-  totalPot         Decimal    @default(0) @db.Decimal(12, 2)
+  status           PoolStatus  @default(DRAFT)
+  buyIn            Decimal     @db.Decimal(10, 2)
+  totalPot         Decimal     @default(0) @db.Decimal(12, 2)
   maxParticipants  Int?
   auctionStartTime DateTime
   tournamentId     String
-  inviteCode       String     @unique
-  streamEnabled    Boolean    @default(false)
+  inviteCode       String      @unique
+  streamEnabled    Boolean     @default(false)
   livekitRoom      String?
   externalStreamUrl String?
   secondaryMarketEnabled Boolean @default(true)
+  auctionMode      AuctionMode @default(TRADITIONAL)
+  isPublic         Boolean     @default(false)     // Public pools visible to all users
+  autoStartAuction Boolean     @default(false)     // Start auction immediately on creation
+  auctionBudget    Decimal?    @db.Decimal(12, 2)  // Per-member budget (null = unlimited)
+  budgetEnabled    Boolean     @default(false)     // Whether budget limits are enforced
   
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
@@ -190,6 +207,12 @@ model Pool {
   @@index([commissionerId])
   @@index([status])
   @@index([inviteCode])
+  @@index([isPublic, status])
+}
+
+enum AuctionMode {
+  TRADITIONAL
+  WHEEL_SPIN
 }
 
 enum PoolStatus {
@@ -202,14 +225,15 @@ enum PoolStatus {
 }
 
 model PoolMember {
-  id            String   @id @default(cuid())
-  poolId        String
-  userId        String
-  role          PoolRole @default(MEMBER)
-  totalSpent    Decimal  @default(0) @db.Decimal(12, 2)
-  totalWinnings Decimal  @default(0) @db.Decimal(12, 2)
+  id              String   @id @default(cuid())
+  poolId          String
+  userId          String
+  role            PoolRole @default(MEMBER)
+  totalSpent      Decimal  @default(0) @db.Decimal(12, 2)
+  totalWinnings   Decimal  @default(0) @db.Decimal(12, 2)
+  remainingBudget Decimal? @db.Decimal(12, 2)  // null = unlimited budget
   
-  joinedAt      DateTime @default(now())
+  joinedAt        DateTime @default(now())
 
   pool Pool @relation(fields: [poolId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -251,6 +275,11 @@ enum PayoutTrigger {
   UPSET_BONUS
   HIGHEST_SEED_WIN
   CUSTOM
+  // NFL-specific triggers
+  SUPER_BOWL_WIN
+  CONFERENCE_CHAMPIONSHIP
+  DIVISIONAL_ROUND
+  WILD_CARD_WIN
 }
 
 // ============================================

@@ -73,7 +73,7 @@ export default function PoolSettingsPage() {
   const params = useParams();
   const router = useRouter();
   const poolId = params.id as string;
-  const { user, token } = useAuth();
+  const { user, getValidToken } = useAuth();
   const { data: pool, mutate } = usePool(poolId);
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
@@ -133,10 +133,15 @@ export default function PoolSettingsPage() {
   };
 
   const handleSavePayouts = async () => {
-    if (!token || !isPayoutValid) return;
+    if (!isPayoutValid) return;
 
     setIsLoading(true);
     try {
+      const token = await getValidToken();
+      if (!token) {
+        toast.error('Please sign in again');
+        return;
+      }
       const rulesData = payoutRules.map((rule) => ({
         name: rule.name,
         description: rule.description,
@@ -156,10 +161,13 @@ export default function PoolSettingsPage() {
   };
 
   const handleSaveGeneral = async () => {
-    if (!token) return;
-
     setIsLoading(true);
     try {
+      const token = await getValidToken();
+      if (!token) {
+        toast.error('Please sign in again');
+        return;
+      }
       await poolsApi.update(token, poolId, {
         secondaryMarketEnabled,
       });
@@ -174,10 +182,13 @@ export default function PoolSettingsPage() {
   };
 
   const handleToggleStream = async () => {
-    if (!token) return;
-
     setIsTogglingStream(true);
     try {
+      const token = await getValidToken();
+      if (!token) {
+        toast.error('Please sign in again');
+        return;
+      }
       if (streamEnabled) {
         await livekitApi.disableStreaming(token, poolId);
         setStreamEnabled(false);

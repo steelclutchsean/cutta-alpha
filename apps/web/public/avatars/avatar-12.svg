@@ -1,0 +1,19 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg12" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3c72"/>
+      <stop offset="100%" style="stop-color:#2a5298"/>
+    </linearGradient>
+    <linearGradient id="crystal" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#fff" stop-opacity="0.9"/>
+      <stop offset="50%" style="stop-color:#a8e6cf" stop-opacity="0.7"/>
+      <stop offset="100%" style="stop-color:#88d8b0" stop-opacity="0.5"/>
+    </linearGradient>
+  </defs>
+  <circle cx="100" cy="100" r="100" fill="url(#bg12)"/>
+  <polygon points="100,35 130,80 130,130 100,165 70,130 70,80" fill="url(#crystal)" stroke="#fff" stroke-width="2"/>
+  <line x1="100" y1="35" x2="100" y2="165" stroke="#fff" stroke-width="1" opacity="0.5"/>
+  <line x1="70" y1="80" x2="130" y2="130" stroke="#fff" stroke-width="1" opacity="0.3"/>
+  <line x1="130" y1="80" x2="70" y2="130" stroke="#fff" stroke-width="1" opacity="0.3"/>
+</svg>
+

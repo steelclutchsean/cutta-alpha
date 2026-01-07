@@ -24,6 +24,9 @@ import {
   Settings,
   X,
   Loader2,
+  Sparkles,
+  RotateCw,
+  FileText,
 } from 'lucide-react';
 import { usePool, useAuctionState } from '@/lib/hooks';
 import { useAuth } from '@/lib/auth-context';
@@ -32,6 +35,7 @@ import { useAuctionStore } from '@/lib/store';
 import { formatCurrency, formatTimeRemaining } from '@cutta/shared';
 import toast from 'react-hot-toast';
 import { auctionApi, livekitApi } from '@/lib/api';
+import WheelSpin from '@/components/WheelSpin';
 
 export default function DraftRoomPage() {
   const params = useParams();
@@ -58,7 +62,17 @@ export default function DraftRoomPage() {
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
 
+  // Wheel spin state
+  const [wheelSpinTeams, setWheelSpinTeams] = useState<any[]>([]);
+  const [isSpinning, setIsSpinning] = useState(false);
+  const [targetTeamId, setTargetTeamId] = useState<string | null>(null);
+  const [assignedUserName, setAssignedUserName] = useState<string>('');
+  const [wheelSpinState, setWheelSpinState] = useState<{ currentIndex: number; totalTeams: number; isActive: boolean } | null>(null);
+  const [matchupBrief, setMatchupBrief] = useState<string | null>(null);
+  const [showMatchupBrief, setShowMatchupBrief] = useState(false);
+
   const isCommissioner = pool?.commissionerId === user?.id;
+  const isWheelSpinMode = pool?.auctionMode === 'WHEEL_SPIN';
   const currentItem = auctionState?.currentItem;
   const minBid = currentItem
     ? (currentItem.currentBid || currentItem.startingBid) + 1
@@ -95,7 +109,7 @@ export default function DraftRoomPage() {
     setChatMessage('');
   };
 
-  const handleCommissionerAction = async (action: 'start' | 'pause' | 'resume' | 'next') => {
+  const handleCommissionerAction = async (action: 'start' | 'pause' | 'resume' | 'next' | 'wheel-init' | 'wheel-spin' | 'wheel-complete') => {
     if (!token) return;
     try {
       switch (action) {
@@ -114,11 +128,47 @@ export default function DraftRoomPage() {
         case 'next':
           await auctionApi.next(token, poolId);
           break;
+        case 'wheel-init':
+          await auctionApi.wheelSpinInit(token, poolId);
+          toast.success('Wheel spin auction initialized!');
+          break;
+        case 'wheel-spin':
+          const spinResult = await auctionApi.wheelSpinSpin(token, poolId);
+          setWheelSpinTeams(spinResult.teams || []);
+          setTargetTeamId(spinResult.team?.id || null);
+          setAssignedUserName(spinResult.assignedUser?.displayName || '');
+          setIsSpinning(true);
+          break;
+        case 'wheel-complete':
+          await auctionApi.wheelSpinComplete(token, poolId);
+          setIsSpinning(false);
+          toast.success('Bidding is now open!');
+          break;
       }
     } catch (error: any) {
       toast.error(error.message);
     }
   };
+
+  // Fetch matchup brief when current item changes
+  useEffect(() => {
+    if (currentItem && token) {
+      auctionApi.getMatchupBrief(token, poolId).then((data) => {
+        setMatchupBrief(data.matchupBrief);
+      }).catch(console.error);
+    }
+  }, [currentItem?.id, token, poolId]);
+
+  // Handle wheel spin completion
+  const handleWheelSpinComplete = useCallback((team: any) => {
+    setIsSpinning(false);
+    if (isCommissioner) {
+      // Small delay before completing to allow animation to finish
+      setTimeout(() => {
+        handleCommissionerAction('wheel-complete');
+      }, 1500);
+    }
+  }, [isCommissioner]);
 
   // Go live - start camera and microphone
   const handleGoLive = async () => {
@@ -128,16 +178,17 @@ export default function DraftRoomPage() {
     try {
       // Request camera and microphone permissions
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
+        video: { 
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          facingMode: 'user'
+        },
         audio: true,
       });
 
       localStreamRef.current = stream;
       
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-      }
-
+      // Set state first - video element will be rendered, then useEffect will connect stream
       setIsLive(true);
       setIsVideoEnabled(true);
       setIsMicEnabled(true);
@@ -146,13 +197,27 @@ export default function DraftRoomPage() {
       console.error('Failed to go live:', error);
       if (error.name === 'NotAllowedError') {
         toast.error('Please allow camera and microphone access to go live');
+      } else if (error.name === 'NotFoundError') {
+        toast.error('Camera or microphone not found');
+      } else if (error.name === 'NotReadableError') {
+        toast.error('Camera or microphone is already in use');
       } else {
-        toast.error('Failed to start streaming');
+        toast.error('Failed to start streaming: ' + error.message);
       }
     } finally {
       setIsConnecting(false);
     }
   };
+
+  // Connect stream to video element when both are available
+  useEffect(() => {
+    if (isLive && localStreamRef.current && localVideoRef.current) {
+      localVideoRef.current.srcObject = localStreamRef.current;
+      localVideoRef.current.play().catch(err => {
+        console.log('Video play handled:', err);
+      });
+    }
+  }, [isLive]);
 
   // Stop live streaming
   const handleStopLive = () => {
@@ -407,7 +472,7 @@ export default function DraftRoomPage() {
                   </span>
                 </div>
                 <h2 className="text-3xl font-bold mb-2 text-white">{currentItem.team.name}</h2>
-                <p className="text-dark-400">{currentItem.team.region} Region</p>
+                <p className="text-dark-400">{currentItem.team.region} {isWheelSpinMode ? 'Conference' : 'Region'}</p>
 
                 {currentItem.currentBid && (
                   <div className="mt-6 pt-6 border-t border-white/5">
@@ -420,6 +485,33 @@ export default function DraftRoomPage() {
                         by <span className="text-white">{currentItem.currentBidder.displayName}</span>
                       </p>
                     )}
+                  </div>
+                )}
+
+                {/* Matchup Brief Toggle */}
+                {matchupBrief && (
+                  <div className="mt-6 pt-6 border-t border-white/5">
+                    <button
+                      onClick={() => setShowMatchupBrief(!showMatchupBrief)}
+                      className="glass-btn text-sm mx-auto"
+                    >
+                      <FileText className="w-4 h-4" />
+                      {showMatchupBrief ? 'Hide' : 'View'} Matchup Preview
+                    </button>
+                    <AnimatePresence>
+                      {showMatchupBrief && (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          exit={{ opacity: 0, height: 0 }}
+                          className="mt-4 text-left"
+                        >
+                          <p className="text-sm text-dark-300 leading-relaxed">
+                            {matchupBrief}
+                          </p>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
                 )}
               </motion.div>
@@ -475,10 +567,34 @@ export default function DraftRoomPage() {
                       Total raised: <span className="text-gold-400 font-bold">{formatCurrency(auctionState.totalRaised)}</span>
                     </p>
                   </>
+                ) : isWheelSpinMode && isSpinning ? (
+                  // Show wheel spin animation
+                  <div className="w-full">
+                    <WheelSpin
+                      teams={wheelSpinTeams}
+                      targetTeamId={targetTeamId}
+                      isSpinning={isSpinning}
+                      assignedUserName={assignedUserName}
+                      onSpinComplete={handleWheelSpinComplete}
+                    />
+                  </div>
                 ) : (
                   <>
-                    <h2 className="text-2xl font-bold mb-2 text-white">Waiting for auction to start</h2>
-                    <p className="text-dark-400">The commissioner will begin shortly</p>
+                    <h2 className="text-2xl font-bold mb-2 text-white">
+                      {isWheelSpinMode ? 'Waiting for wheel spin' : 'Waiting for auction to start'}
+                    </h2>
+                    <p className="text-dark-400">
+                      {isWheelSpinMode 
+                        ? 'The commissioner will spin the wheel to assign teams' 
+                        : 'The commissioner will begin shortly'
+                      }
+                    </p>
+                    {isWheelSpinMode && (
+                      <div className="mt-4 flex items-center gap-2 text-gold-400">
+                        <Sparkles className="w-5 h-5" />
+                        <span className="text-sm font-medium">Wheel Spin Mode</span>
+                      </div>
+                    )}
                   </>
                 )}
               </div>
@@ -488,7 +604,7 @@ export default function DraftRoomPage() {
           {/* Commissioner Controls - Glass Style */}
           {isCommissioner && (
             <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 glass-panel !p-2 !rounded-2xl flex gap-2">
-              {auctionState.status === 'not_started' && (
+              {auctionState.status === 'not_started' && !isWheelSpinMode && (
                 <button
                   onClick={() => handleCommissionerAction('start')}
                   className="glass-btn-gold"
@@ -497,7 +613,25 @@ export default function DraftRoomPage() {
                   Start Auction
                 </button>
               )}
-              {auctionState.status === 'in_progress' && (
+              {auctionState.status === 'not_started' && isWheelSpinMode && (
+                <button
+                  onClick={() => handleCommissionerAction('wheel-init')}
+                  className="glass-btn-gold"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  Initialize Wheel Spin
+                </button>
+              )}
+              {auctionState.status === 'in_progress' && isWheelSpinMode && !currentItem && !isSpinning && (
+                <button
+                  onClick={() => handleCommissionerAction('wheel-spin')}
+                  className="glass-btn-gold"
+                >
+                  <RotateCw className="w-4 h-4" />
+                  Spin Wheel
+                </button>
+              )}
+              {auctionState.status === 'in_progress' && currentItem && (
                 <>
                   <button
                     onClick={() => handleCommissionerAction('pause')}
@@ -510,7 +644,7 @@ export default function DraftRoomPage() {
                     className="glass-btn-primary"
                   >
                     <SkipForward className="w-4 h-4" />
-                    Next Team
+                    {isWheelSpinMode ? 'Next Spin' : 'Next Team'}
                   </button>
                 </>
               )}

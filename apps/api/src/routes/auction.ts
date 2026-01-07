@@ -4,7 +4,15 @@ import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { placeBidSchema } from '@cutta/shared';
 import { AppError } from '../middleware/error.js';
-import { getAuctionState, processAuctionBid } from '../services/auction.js';
+import {
+  getAuctionState,
+  processAuctionBid,
+  initializeWheelSpinAuction,
+  executeWheelSpin,
+  completeWheelSpin,
+  getWheelSpinState,
+  getMatchupBrief,
+} from '../services/auction.js';
 import { Server } from 'socket.io';
 
 export const auctionRouter = Router();
@@ -284,6 +292,138 @@ auctionRouter.put('/:poolId/order', async (req, res, next) => {
     );
 
     res.json({ message: 'Order updated' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// WHEEL SPIN AUCTION ROUTES
+// ============================================
+
+// Initialize wheel spin auction (commissioner only)
+auctionRouter.post('/:poolId/wheel-spin/init', async (req, res, next) => {
+  try {
+    const { poolId } = req.params;
+
+    const pool = await prisma.pool.findUnique({ where: { id: poolId } });
+
+    if (!pool) {
+      throw new AppError(404, 'Pool not found', 'NOT_FOUND');
+    }
+
+    if (pool.commissionerId !== req.user!.id) {
+      throw new AppError(403, 'Only the commissioner can initialize wheel spin', 'NOT_COMMISSIONER');
+    }
+
+    if (pool.auctionMode !== 'WHEEL_SPIN') {
+      throw new AppError(400, 'Pool is not configured for wheel spin auction', 'INVALID_AUCTION_MODE');
+    }
+
+    if (pool.status !== 'OPEN') {
+      throw new AppError(400, 'Pool must be open to initialize wheel spin', 'INVALID_STATUS');
+    }
+
+    const io: Server = req.app.get('io');
+    await initializeWheelSpinAuction(poolId, io);
+
+    // Update pool status to LIVE
+    await prisma.pool.update({
+      where: { id: poolId },
+      data: { status: 'LIVE' },
+    });
+
+    res.json({ message: 'Wheel spin auction initialized' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Execute wheel spin (commissioner only)
+auctionRouter.post('/:poolId/wheel-spin/spin', async (req, res, next) => {
+  try {
+    const { poolId } = req.params;
+
+    const pool = await prisma.pool.findUnique({ where: { id: poolId } });
+
+    if (!pool) {
+      throw new AppError(404, 'Pool not found', 'NOT_FOUND');
+    }
+
+    if (pool.commissionerId !== req.user!.id) {
+      throw new AppError(403, 'Only the commissioner can spin the wheel', 'NOT_COMMISSIONER');
+    }
+
+    const io: Server = req.app.get('io');
+    const result = await executeWheelSpin(poolId, io);
+
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Complete wheel spin and start bidding (commissioner only)
+auctionRouter.post('/:poolId/wheel-spin/complete', async (req, res, next) => {
+  try {
+    const { poolId } = req.params;
+
+    const pool = await prisma.pool.findUnique({ where: { id: poolId } });
+
+    if (!pool) {
+      throw new AppError(404, 'Pool not found', 'NOT_FOUND');
+    }
+
+    if (pool.commissionerId !== req.user!.id) {
+      throw new AppError(403, 'Only the commissioner can complete the spin', 'NOT_COMMISSIONER');
+    }
+
+    const io: Server = req.app.get('io');
+    await completeWheelSpin(poolId, io);
+
+    res.json({ message: 'Spin complete, bidding started' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get wheel spin state
+auctionRouter.get('/:poolId/wheel-spin/state', async (req, res, next) => {
+  try {
+    const { poolId } = req.params;
+
+    // Verify membership
+    const membership = await prisma.poolMember.findUnique({
+      where: { poolId_userId: { poolId, userId: req.user!.id } },
+    });
+
+    if (!membership) {
+      throw new AppError(403, 'You are not a member of this pool', 'NOT_MEMBER');
+    }
+
+    const state = getWheelSpinState(poolId);
+    res.json(state);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get matchup brief for current item
+auctionRouter.get('/:poolId/matchup-brief', async (req, res, next) => {
+  try {
+    const { poolId } = req.params;
+
+    // Verify membership
+    const membership = await prisma.poolMember.findUnique({
+      where: { poolId_userId: { poolId, userId: req.user!.id } },
+    });
+
+    if (!membership) {
+      throw new AppError(403, 'You are not a member of this pool', 'NOT_MEMBER');
+    }
+
+    const brief = await getMatchupBrief(poolId);
+    res.json({ matchupBrief: brief });
   } catch (error) {
     next(error);
   }

@@ -127,39 +127,38 @@ poolsRouter.get('/commissioned', async (req, res, next) => {
 // Get public/discoverable pools
 poolsRouter.get('/discover', async (req, res, next) => {
   try {
+    // Find public pools that are open or in draft/live and not full
     const pools = await prisma.pool.findMany({
       where: {
-        status: 'OPEN',
-        OR: [
-          { maxParticipants: null },
-          {
-            members: {
-              _count: {
-                lt: prisma.pool.fields.maxParticipants,
-              },
-            },
-          },
-        ],
+        isPublic: true,
+        status: { in: ['DRAFT', 'OPEN', 'LIVE'] },
       },
       include: {
         commissioner: {
           select: { id: true, displayName: true, avatarUrl: true },
         },
         tournament: {
-          select: { id: true, name: true, year: true },
+          select: { id: true, name: true, year: true, sport: true },
         },
         _count: {
           select: { members: true },
         },
       },
       orderBy: { auctionStartTime: 'asc' },
-      take: 20,
+      take: 50,
+    });
+
+    // Filter out pools that are full
+    const availablePools = pools.filter((p) => {
+      if (p.maxParticipants === null) return true;
+      return p._count.members < p.maxParticipants;
     });
 
     res.json(
-      pools.map((p) => ({
+      availablePools.map((p) => ({
         ...p,
         memberCount: p._count.members,
+        spotsRemaining: p.maxParticipants ? p.maxParticipants - p._count.members : null,
       }))
     );
   } catch (error) {
@@ -231,7 +230,21 @@ poolsRouter.get('/:id', async (req, res, next) => {
 // Create pool
 poolsRouter.post('/', validate(createPoolSchema), async (req, res, next) => {
   try {
-    const { name, description, buyIn, maxParticipants, auctionStartTime, tournamentId, secondaryMarketEnabled, payoutRules } = req.body;
+    const { 
+      name, 
+      description, 
+      buyIn, 
+      maxParticipants, 
+      auctionStartTime, 
+      tournamentId, 
+      secondaryMarketEnabled, 
+      auctionMode, 
+      isPublic,
+      autoStartAuction,
+      auctionBudget,
+      budgetEnabled,
+      payoutRules 
+    } = req.body;
 
     // Verify tournament exists
     const tournament = await prisma.tournament.findUnique({
@@ -251,6 +264,12 @@ poolsRouter.post('/', validate(createPoolSchema), async (req, res, next) => {
       }
     }
 
+    // If autoStartAuction is true, auctionStartTime is not required (use current time)
+    // Otherwise, auctionStartTime is required
+    if (!autoStartAuction && !auctionStartTime) {
+      throw new AppError(400, 'Auction start time is required when auto-start is disabled', 'MISSING_AUCTION_TIME');
+    }
+
     // Generate unique invite code
     let inviteCode = generateInviteCode();
     let attempts = 0;
@@ -261,6 +280,15 @@ poolsRouter.post('/', validate(createPoolSchema), async (req, res, next) => {
       attempts++;
     }
 
+    // Determine pool status and auction start time
+    const poolStatus = autoStartAuction ? 'LIVE' : 'DRAFT';
+    const effectiveAuctionStartTime = autoStartAuction 
+      ? new Date() 
+      : new Date(auctionStartTime);
+
+    // Determine remaining budget for commissioner
+    const commissionerBudget = budgetEnabled && auctionBudget != null ? auctionBudget : null;
+
     // Create pool with commissioner membership
     const pool = await prisma.pool.create({
       data: {
@@ -269,15 +297,21 @@ poolsRouter.post('/', validate(createPoolSchema), async (req, res, next) => {
         commissionerId: req.user!.id,
         buyIn,
         maxParticipants,
-        auctionStartTime: new Date(auctionStartTime),
+        auctionStartTime: effectiveAuctionStartTime,
         tournamentId,
         inviteCode,
         secondaryMarketEnabled: secondaryMarketEnabled ?? true,
-        status: 'DRAFT',
+        auctionMode: auctionMode || 'TRADITIONAL',
+        isPublic: isPublic ?? false,
+        autoStartAuction: autoStartAuction ?? false,
+        auctionBudget: auctionBudget ?? null,
+        budgetEnabled: budgetEnabled ?? false,
+        status: poolStatus,
         members: {
           create: {
             userId: req.user!.id,
             role: 'COMMISSIONER',
+            remainingBudget: commissionerBudget,
           },
         },
         // Create auction items for all teams
@@ -396,7 +430,8 @@ poolsRouter.post('/join', validate(joinPoolSchema), async (req, res, next) => {
       throw new AppError(404, 'Invalid invite code', 'INVALID_INVITE');
     }
 
-    if (pool.status !== 'DRAFT' && pool.status !== 'OPEN') {
+    // Allow joining pools that are in DRAFT, OPEN, or LIVE status
+    if (pool.status !== 'DRAFT' && pool.status !== 'OPEN' && pool.status !== 'LIVE') {
       throw new AppError(400, 'This pool is no longer accepting members', 'POOL_CLOSED');
     }
 
@@ -413,12 +448,18 @@ poolsRouter.post('/join', validate(joinPoolSchema), async (req, res, next) => {
       throw new AppError(400, 'You are already a member of this pool', 'ALREADY_MEMBER');
     }
 
-    // Add member
+    // Determine remaining budget for new member
+    const memberBudget = pool.budgetEnabled && pool.auctionBudget != null 
+      ? Number(pool.auctionBudget) 
+      : null;
+
+    // Add member with budget
     await prisma.poolMember.create({
       data: {
         poolId: pool.id,
         userId: req.user!.id,
         role: 'MEMBER',
+        remainingBudget: memberBudget,
       },
     });
 

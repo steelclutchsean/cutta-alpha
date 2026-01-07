@@ -1,0 +1,19 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffd700"/>
+      <stop offset="100%" style="stop-color:#ff8c00"/>
+    </linearGradient>
+    <linearGradient id="trophy" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#fff"/>
+      <stop offset="100%" style="stop-color:#f0f0f0"/>
+    </linearGradient>
+  </defs>
+  <circle cx="100" cy="100" r="100" fill="url(#bg3)"/>
+  <path d="M65 60 L135 60 L130 100 Q100 130 70 100 Z" fill="url(#trophy)" stroke="#222" stroke-width="2"/>
+  <rect x="85" y="115" width="30" height="15" fill="url(#trophy)" stroke="#222" stroke-width="2"/>
+  <rect x="75" y="130" width="50" height="12" rx="3" fill="url(#trophy)" stroke="#222" stroke-width="2"/>
+  <path d="M65 60 Q40 70 50 95 L70 85" fill="none" stroke="#fff" stroke-width="6"/>
+  <path d="M135 60 Q160 70 150 95 L130 85" fill="none" stroke="#fff" stroke-width="6"/>
+</svg>
+

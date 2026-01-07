@@ -1,5 +1,7 @@
 export type PoolStatus = 'draft' | 'open' | 'live' | 'in_progress' | 'completed' | 'cancelled';
 
+export type AuctionMode = 'traditional' | 'wheel_spin';
+
 export interface Pool {
   id: string;
   name: string;
@@ -14,6 +16,7 @@ export interface Pool {
   inviteCode: string;
   streamConfig: StreamConfig | null;
   secondaryMarketEnabled: boolean;
+  auctionMode: AuctionMode;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -55,7 +58,12 @@ export type PayoutTrigger =
   | 'first_four'
   | 'upset_bonus'
   | 'highest_seed_win'
-  | 'custom';
+  | 'custom'
+  // NFL-specific triggers
+  | 'super_bowl_win'
+  | 'conference_championship'
+  | 'divisional_round'
+  | 'wild_card_win';
 
 export interface PoolWithDetails extends Pool {
   commissioner: {

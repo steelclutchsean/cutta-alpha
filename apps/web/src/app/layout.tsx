@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter, Barlow_Condensed, Fira_Code } from 'next/font/google';
 import { Toaster } from 'react-hot-toast';
+import { ClerkProvider } from '@clerk/nextjs';
 import { Providers } from '@/components/providers';
 import './globals.css';
 
@@ -41,38 +42,73 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark">
-      <body
-        className={`${inter.variable} ${barlowCondensed.variable} ${firaCode.variable} font-body bg-dark-800 text-white antialiased`}
-      >
-        <Providers>
-          {children}
-          <Toaster
-            position="top-right"
-            toastOptions={{
-              duration: 4000,
-              style: {
-                background: '#1a1a1a',
-                color: '#fff',
-                border: '1px solid #333',
-              },
-              success: {
-                iconTheme: {
-                  primary: '#00ff77',
-                  secondary: '#1a1a1a',
+    <ClerkProvider
+      appearance={{
+        variables: {
+          colorPrimary: '#00ff77',
+          colorBackground: '#1a1a1a',
+          colorInputBackground: '#262626',
+          colorInputText: '#ffffff',
+          colorText: '#ffffff',
+          colorTextSecondary: '#a3a3a3',
+          colorDanger: '#ff4444',
+          colorSuccess: '#00ff77',
+          colorNeutral: '#737373',
+        },
+        elements: {
+          formButtonPrimary: 'bg-primary-500 hover:bg-primary-600 text-dark-900',
+          card: 'bg-dark-800 border border-dark-600',
+          headerTitle: 'text-white',
+          headerSubtitle: 'text-dark-300',
+          socialButtonsBlockButton: 'bg-dark-700 border-dark-600 hover:bg-dark-600 text-white',
+          socialButtonsBlockButtonText: 'text-white',
+          formFieldLabel: 'text-dark-200',
+          formFieldInput: 'bg-dark-700 border-dark-600 text-white',
+          footerActionLink: 'text-primary-400 hover:text-primary-300',
+          dividerLine: 'bg-dark-600',
+          dividerText: 'text-dark-400',
+          identityPreviewText: 'text-white',
+          identityPreviewEditButtonIcon: 'text-primary-400',
+          userButtonPopoverCard: 'bg-dark-800 border border-dark-600',
+          userButtonPopoverActionButton: 'hover:bg-dark-700',
+          userButtonPopoverActionButtonText: 'text-white',
+          userButtonPopoverFooter: 'hidden',
+        },
+      }}
+    >
+      <html lang="en" className="dark">
+        <body
+          className={`${inter.variable} ${barlowCondensed.variable} ${firaCode.variable} font-body bg-dark-800 text-white antialiased`}
+        >
+          <Providers>
+            {children}
+            <Toaster
+              position="top-right"
+              toastOptions={{
+                duration: 4000,
+                style: {
+                  background: '#1a1a1a',
+                  color: '#fff',
+                  border: '1px solid #333',
                 },
-              },
-              error: {
-                iconTheme: {
-                  primary: '#ff4444',
-                  secondary: '#1a1a1a',
+                success: {
+                  iconTheme: {
+                    primary: '#00ff77',
+                    secondary: '#1a1a1a',
+                  },
                 },
-              },
-            }}
-          />
-        </Providers>
-      </body>
-    </html>
+                error: {
+                  iconTheme: {
+                    primary: '#ff4444',
+                    secondary: '#1a1a1a',
+                  },
+                },
+              }}
+            />
+          </Providers>
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }
 

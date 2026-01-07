@@ -11,6 +11,7 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
+    "@clerk/express": "^1.7.60",
     "@cutta/db": "workspace:*",
     "@cutta/shared": "workspace:*",
     "bcryptjs": "^2.4.3",

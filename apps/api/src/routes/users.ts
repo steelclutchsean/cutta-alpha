@@ -12,6 +12,147 @@ export const usersRouter = Router();
 // All routes require authentication
 usersRouter.use(authenticate);
 
+// Sync Clerk user with database
+usersRouter.post('/sync', async (req, res, next) => {
+  try {
+    const { clerkId, email, displayName, avatarUrl } = req.body;
+    
+    if (!clerkId || !email) {
+      throw new AppError(400, 'clerkId and email are required', 'VALIDATION_ERROR');
+    }
+
+    // Find or create user
+    let user = await prisma.user.findFirst({
+      where: { clerkId },
+    });
+
+    if (!user) {
+      // Check if user exists by email (legacy user migration)
+      user = await prisma.user.findUnique({
+        where: { email },
+      });
+
+      if (user) {
+        // Link existing user to Clerk - only update avatar if user doesn't have a custom one set
+        const shouldUpdateAvatar = user.avatarType === 'CLERK' || !user.avatarUrl;
+        user = await prisma.user.update({
+          where: { id: user.id },
+          data: { 
+            clerkId, 
+            ...(shouldUpdateAvatar && avatarUrl && { 
+              avatarUrl,
+              avatarType: 'CLERK',
+            }),
+          },
+        });
+      } else {
+        // Create new user with Clerk avatar
+        user = await prisma.user.create({
+          data: {
+            clerkId,
+            email,
+            displayName: displayName || email.split('@')[0],
+            avatarUrl,
+            avatarType: avatarUrl ? 'CLERK' : 'CUSTOM',
+            passwordHash: null, // No password for Clerk users
+          },
+        });
+      }
+    } else {
+      // Update existing user info - only update avatar if user uses Clerk avatar
+      const shouldUpdateAvatar = user.avatarType === 'CLERK';
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          displayName: displayName || user.displayName,
+          ...(shouldUpdateAvatar && avatarUrl && { avatarUrl }),
+        },
+      });
+    }
+
+    res.json({
+      id: user.id,
+      clerkId: user.clerkId,
+      email: user.email,
+      displayName: user.displayName,
+      avatarUrl: user.avatarUrl,
+      avatarType: user.avatarType,
+      presetAvatarId: user.presetAvatarId,
+      phone: user.phone,
+      balance: user.balance,
+      kycVerified: user.kycVerified,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get current user
+usersRouter.get('/me', async (req, res, next) => {
+  try {
+    if (!req.user?.id) {
+      throw new AppError(401, 'Not authenticated', 'UNAUTHORIZED');
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        id: true,
+        clerkId: true,
+        email: true,
+        displayName: true,
+        avatarUrl: true,
+        avatarType: true,
+        presetAvatarId: true,
+        phone: true,
+        balance: true,
+        kycVerified: true,
+      },
+    });
+
+    if (!user) {
+      throw new AppError(404, 'User not found', 'USER_NOT_FOUND');
+    }
+
+    res.json(user);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Preset avatars configuration
+const PRESET_AVATARS = [
+  { id: 'avatar-01', name: 'Basketball', category: 'sports', url: '/avatars/avatar-01.svg' },
+  { id: 'avatar-02', name: 'Football', category: 'sports', url: '/avatars/avatar-02.svg' },
+  { id: 'avatar-03', name: 'Trophy Gold', category: 'sports', url: '/avatars/avatar-03.svg' },
+  { id: 'avatar-04', name: 'Champion', category: 'sports', url: '/avatars/avatar-04.svg' },
+  { id: 'avatar-05', name: 'Stadium', category: 'sports', url: '/avatars/avatar-05.svg' },
+  { id: 'avatar-06', name: 'Whistle', category: 'sports', url: '/avatars/avatar-06.svg' },
+  { id: 'avatar-07', name: 'Neon Wave', category: 'abstract', url: '/avatars/avatar-07.svg' },
+  { id: 'avatar-08', name: 'Cosmic', category: 'abstract', url: '/avatars/avatar-08.svg' },
+  { id: 'avatar-09', name: 'Gradient Sphere', category: 'abstract', url: '/avatars/avatar-09.svg' },
+  { id: 'avatar-10', name: 'Digital Grid', category: 'abstract', url: '/avatars/avatar-10.svg' },
+  { id: 'avatar-11', name: 'Aurora', category: 'abstract', url: '/avatars/avatar-11.svg' },
+  { id: 'avatar-12', name: 'Crystal', category: 'abstract', url: '/avatars/avatar-12.svg' },
+  { id: 'avatar-13', name: 'Wolf', category: 'animals', url: '/avatars/avatar-13.svg' },
+  { id: 'avatar-14', name: 'Eagle', category: 'animals', url: '/avatars/avatar-14.svg' },
+  { id: 'avatar-15', name: 'Lion', category: 'animals', url: '/avatars/avatar-15.svg' },
+  { id: 'avatar-16', name: 'Bear', category: 'animals', url: '/avatars/avatar-16.svg' },
+  { id: 'avatar-17', name: 'Hawk', category: 'animals', url: '/avatars/avatar-17.svg' },
+  { id: 'avatar-18', name: 'Tiger', category: 'animals', url: '/avatars/avatar-18.svg' },
+  { id: 'avatar-19', name: 'Ninja', category: 'characters', url: '/avatars/avatar-19.svg' },
+  { id: 'avatar-20', name: 'Warrior', category: 'characters', url: '/avatars/avatar-20.svg' },
+  { id: 'avatar-21', name: 'Samurai', category: 'characters', url: '/avatars/avatar-21.svg' },
+  { id: 'avatar-22', name: 'Knight', category: 'characters', url: '/avatars/avatar-22.svg' },
+  { id: 'avatar-23', name: 'Astronaut', category: 'characters', url: '/avatars/avatar-23.svg' },
+  { id: 'avatar-24', name: 'Robot', category: 'characters', url: '/avatars/avatar-24.svg' },
+];
+
+// Get preset avatars list
+usersRouter.get('/avatars/presets', async (req, res) => {
+  res.json(PRESET_AVATARS);
+});
+
 // Get user profile
 usersRouter.get('/profile', async (req, res, next) => {
   try {
@@ -66,11 +207,16 @@ usersRouter.get('/profile', async (req, res, next) => {
       email: user.email,
       displayName: user.displayName,
       avatarUrl: user.avatarUrl,
+      avatarType: user.avatarType,
+      presetAvatarId: user.presetAvatarId,
+      phone: user.phone,
       balance: user.balance,
       kycVerified: user.kycVerified,
+      createdAt: user.createdAt,
       totalWinnings,
       ownedTeams: user._count.ownerships,
       activeListings: user._count.listings,
+      poolsJoined: user.poolMemberships.length,
       pools: user.poolMemberships.map((pm) => pm.pool),
       ownerships: user.ownerships,
     });
@@ -82,25 +228,263 @@ usersRouter.get('/profile', async (req, res, next) => {
 // Update profile
 usersRouter.patch('/profile', async (req, res, next) => {
   try {
-    const { displayName, avatarUrl } = req.body;
+    const { displayName, avatarUrl, avatarType, presetAvatarId, phone } = req.body;
+
+    // Validate phone number format if provided
+    if (phone !== undefined && phone !== null && phone !== '') {
+      const phoneRegex = /^\+?[1-9]\d{1,14}$/;
+      if (!phoneRegex.test(phone.replace(/[\s\-\(\)]/g, ''))) {
+        throw new AppError(400, 'Invalid phone number format', 'INVALID_PHONE');
+      }
+    }
 
     const user = await prisma.user.update({
       where: { id: req.user!.id },
       data: {
         ...(displayName && { displayName }),
         ...(avatarUrl !== undefined && { avatarUrl }),
+        ...(avatarType && { avatarType }),
+        ...(presetAvatarId !== undefined && { presetAvatarId }),
+        ...(phone !== undefined && { phone: phone || null }),
       },
       select: {
         id: true,
         email: true,
         displayName: true,
         avatarUrl: true,
+        avatarType: true,
+        presetAvatarId: true,
+        phone: true,
         balance: true,
         kycVerified: true,
       },
     });
 
     res.json(user);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get transaction analytics
+usersRouter.get('/transactions/analytics', async (req, res, next) => {
+  try {
+    const userId = req.user!.id;
+
+    // Get all transactions for the user
+    const transactions = await prisma.transaction.findMany({
+      where: {
+        OR: [{ buyerId: userId }, { sellerId: userId }],
+        status: 'COMPLETED',
+      },
+      include: {
+        listing: {
+          include: {
+            ownership: {
+              include: {
+                auctionItem: {
+                  include: {
+                    team: true,
+                    pool: { select: { id: true, name: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Get payouts for the user
+    const payouts = await prisma.payout.findMany({
+      where: {
+        userId,
+        status: 'PROCESSED',
+      },
+      include: {
+        pool: { select: { id: true, name: true } },
+      },
+    });
+
+    // Calculate summary
+    let totalSpent = 0;
+    let totalEarned = 0;
+    const totalWinnings = payouts.reduce((sum, p) => sum + Number(p.amount), 0);
+
+    transactions.forEach((tx) => {
+      const amount = Number(tx.amount);
+      if (tx.buyerId === userId) {
+        totalSpent += amount;
+      }
+      if (tx.sellerId === userId) {
+        totalEarned += Number(tx.netAmount);
+      }
+    });
+
+    // Calculate by type
+    const byTypeMap = new Map<string, { count: number; total: number }>();
+    transactions.forEach((tx) => {
+      const existing = byTypeMap.get(tx.type) || { count: 0, total: 0 };
+      existing.count += 1;
+      existing.total += Number(tx.amount);
+      byTypeMap.set(tx.type, existing);
+    });
+    const byType = Array.from(byTypeMap.entries()).map(([type, data]) => ({
+      type,
+      ...data,
+    }));
+
+    // Calculate by pool
+    const byPoolMap = new Map<string, { poolId: string; poolName: string; spent: number; earned: number; winnings: number }>();
+    
+    transactions.forEach((tx) => {
+      const pool = tx.listing?.ownership?.auctionItem?.pool;
+      if (pool) {
+        const existing = byPoolMap.get(pool.id) || {
+          poolId: pool.id,
+          poolName: pool.name,
+          spent: 0,
+          earned: 0,
+          winnings: 0,
+        };
+        if (tx.buyerId === userId) {
+          existing.spent += Number(tx.amount);
+        }
+        if (tx.sellerId === userId) {
+          existing.earned += Number(tx.netAmount);
+        }
+        byPoolMap.set(pool.id, existing);
+      }
+    });
+
+    // Add payouts to pool data
+    payouts.forEach((payout) => {
+      const existing = byPoolMap.get(payout.poolId) || {
+        poolId: payout.poolId,
+        poolName: payout.pool.name,
+        spent: 0,
+        earned: 0,
+        winnings: 0,
+      };
+      existing.winnings += Number(payout.amount);
+      byPoolMap.set(payout.poolId, existing);
+    });
+
+    const byPool = Array.from(byPoolMap.values());
+
+    // Calculate monthly trends
+    const monthlyMap = new Map<string, { spent: number; earned: number; winnings: number }>();
+    
+    transactions.forEach((tx) => {
+      const month = tx.createdAt.toISOString().slice(0, 7); // YYYY-MM
+      const existing = monthlyMap.get(month) || { spent: 0, earned: 0, winnings: 0 };
+      if (tx.buyerId === userId) {
+        existing.spent += Number(tx.amount);
+      }
+      if (tx.sellerId === userId) {
+        existing.earned += Number(tx.netAmount);
+      }
+      monthlyMap.set(month, existing);
+    });
+
+    payouts.forEach((payout) => {
+      const month = payout.createdAt.toISOString().slice(0, 7);
+      const existing = monthlyMap.get(month) || { spent: 0, earned: 0, winnings: 0 };
+      existing.winnings += Number(payout.amount);
+      monthlyMap.set(month, existing);
+    });
+
+    const monthlyTrends = Array.from(monthlyMap.entries())
+      .map(([month, data]) => ({ month, ...data }))
+      .sort((a, b) => a.month.localeCompare(b.month));
+
+    res.json({
+      summary: {
+        totalSpent,
+        totalEarned,
+        totalWinnings,
+        netPnL: totalEarned + totalWinnings - totalSpent,
+        transactionCount: transactions.length,
+      },
+      byType,
+      byPool,
+      monthlyTrends,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get detailed transactions list with filtering
+usersRouter.get('/transactions', async (req, res, next) => {
+  try {
+    const userId = req.user!.id;
+    const { type, poolId, startDate, endDate, limit = '50', offset = '0' } = req.query;
+
+    const where: any = {
+      OR: [{ buyerId: userId }, { sellerId: userId }],
+      status: 'COMPLETED',
+    };
+
+    if (type) {
+      where.type = type as string;
+    }
+
+    if (startDate || endDate) {
+      where.createdAt = {};
+      if (startDate) {
+        where.createdAt.gte = new Date(startDate as string);
+      }
+      if (endDate) {
+        where.createdAt.lte = new Date(endDate as string);
+      }
+    }
+
+    const transactions = await prisma.transaction.findMany({
+      where,
+      include: {
+        listing: {
+          include: {
+            ownership: {
+              include: {
+                auctionItem: {
+                  include: {
+                    team: {
+                      select: { id: true, name: true, shortName: true, logoUrl: true },
+                    },
+                    pool: { select: { id: true, name: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: parseInt(limit as string),
+      skip: parseInt(offset as string),
+    });
+
+    // Filter by pool if specified (after query since it's nested)
+    let filteredTransactions = transactions;
+    if (poolId) {
+      filteredTransactions = transactions.filter(
+        (tx) => tx.listing?.ownership?.auctionItem?.pool?.id === poolId
+      );
+    }
+
+    // Get total count for pagination
+    const totalCount = await prisma.transaction.count({ where });
+
+    res.json({
+      transactions: filteredTransactions,
+      pagination: {
+        total: totalCount,
+        limit: parseInt(limit as string),
+        offset: parseInt(offset as string),
+      },
+    });
   } catch (error) {
     next(error);
   }

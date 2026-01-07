@@ -10,13 +10,26 @@ export const PLATFORM_FEE_RATE = 0.01; // 1%
 export const MIN_LISTING_PRICE = 1; // $1
 export const MAX_LISTING_DURATION_DAYS = 30;
 
-// Payout defaults
+// Payout defaults (March Madness)
 export const DEFAULT_PAYOUT_STRUCTURE = [
-  { name: 'Champion', trigger: 'championship_win', percentage: 50 },
-  { name: 'Runner-up', trigger: 'final_four', percentage: 25 },
-  { name: 'Final Four', trigger: 'final_four', percentage: 15 },
-  { name: 'Elite Eight', trigger: 'elite_eight', percentage: 10 },
+  { name: 'Champion', trigger: 'CHAMPIONSHIP_WIN', percentage: 50 },
+  { name: 'Runner-up', trigger: 'FINAL_FOUR', percentage: 25 },
+  { name: 'Final Four', trigger: 'FINAL_FOUR', percentage: 15 },
+  { name: 'Elite Eight', trigger: 'ELITE_EIGHT', percentage: 10 },
 ] as const;
+
+// NFL Playoffs payout structure
+export const NFL_PAYOUT_STRUCTURE = [
+  { name: 'Super Bowl Champion', trigger: 'SUPER_BOWL_WIN', percentage: 50 },
+  { name: 'Super Bowl Runner-up', trigger: 'SUPER_BOWL_WIN', percentage: 15, triggerValue: 'runner_up' },
+  { name: 'Conference Champion (each)', trigger: 'CONFERENCE_CHAMPIONSHIP', percentage: 7.5 },
+  { name: 'Divisional Round Win (each)', trigger: 'DIVISIONAL_ROUND', percentage: 3.75 },
+  { name: 'Wild Card Win (each)', trigger: 'WILD_CARD_WIN', percentage: 1.25 },
+] as const;
+
+// Wheel spin settings
+export const WHEEL_SPIN_DURATION = 5000; // 5 seconds spin animation
+export const WHEEL_SPIN_ROTATIONS = 5; // Number of full rotations
 
 // UI Constants
 export const AVATAR_PLACEHOLDER = '/images/avatar-placeholder.png';
@@ -32,6 +45,7 @@ export const SOCKET_EVENTS = {
   SEND_REACTION: 'sendReaction',
   START_TYPING: 'startTyping',
   STOP_TYPING: 'stopTyping',
+  SPIN_WHEEL: 'spinWheel',
   
   // Server -> Client
   CONNECTED: 'connected',
@@ -55,6 +69,10 @@ export const SOCKET_EVENTS = {
   TEAM_ELIMINATED: 'teamEliminated',
   PAYOUT_PROCESSED: 'payoutProcessed',
   BALANCE_UPDATE: 'balanceUpdate',
+  // Wheel spin events
+  WHEEL_SPIN_START: 'wheelSpinStart',
+  WHEEL_SPIN_RESULT: 'wheelSpinResult',
+  WHEEL_SPIN_COMPLETE: 'wheelSpinComplete',
 } as const;
 
 // API Routes

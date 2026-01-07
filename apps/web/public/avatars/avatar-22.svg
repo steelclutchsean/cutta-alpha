@@ -1,0 +1,21 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg22" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#37474f"/>
+      <stop offset="100%" style="stop-color:#263238"/>
+    </linearGradient>
+    <linearGradient id="armor" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#90a4ae"/>
+      <stop offset="100%" style="stop-color:#607d8b"/>
+    </linearGradient>
+  </defs>
+  <circle cx="100" cy="100" r="100" fill="url(#bg22)"/>
+  <path d="M55 140 L55 65 Q55 35 100 35 Q145 35 145 65 L145 140" fill="url(#armor)"/>
+  <rect x="55" y="85" width="90" height="8" fill="#455a64"/>
+  <rect x="65" y="100" width="30" height="25" fill="#1a1a1a"/>
+  <rect x="105" y="100" width="30" height="25" fill="#1a1a1a"/>
+  <path d="M70 140 L100 155 L130 140" fill="none" stroke="#455a64" stroke-width="4"/>
+  <circle cx="100" cy="55" r="8" fill="#ffd700"/>
+  <path d="M92 55 L100 45 L108 55" fill="#ffd700"/>
+</svg>
+

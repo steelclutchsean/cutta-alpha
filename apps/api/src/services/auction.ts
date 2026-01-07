@@ -3,10 +3,15 @@ import { Server } from 'socket.io';
 import { config } from '../config/index.js';
 import { processAuctionWin } from './payments.js';
 import type { AuctionState, AuctionItemWithDetails } from '@cutta/shared';
+import { WHEEL_SPIN_DURATION } from '@cutta/shared';
 
 // In-memory timer state (would use Redis in production)
 const auctionTimers: Map<string, NodeJS.Timeout> = new Map();
 const auctionTimeRemaining: Map<string, number> = new Map();
+
+// Wheel spin state
+const wheelSpinQueues: Map<string, { teamId: string; userId: string }[]> = new Map();
+const currentSpinParticipant: Map<string, number> = new Map();
 
 /**
  * Get current auction state for a pool
@@ -127,10 +132,10 @@ export async function processAuctionBid(
   amount: number,
   io: Server
 ): Promise<{ success: boolean; bid?: { id: string; amount: number } }> {
-  // Get current item state
+  // Get current item state and pool for budget check
   const auctionItem = await prisma.auctionItem.findUnique({
     where: { id: auctionItemId },
-    include: { team: true },
+    include: { team: true, pool: true },
   });
 
   if (!auctionItem) {
@@ -148,6 +153,26 @@ export async function processAuctionBid(
 
   if (amount < minBid) {
     throw new Error(`Minimum bid is $${minBid}`);
+  }
+
+  // Check budget if enabled
+  if (auctionItem.pool.budgetEnabled) {
+    const member = await prisma.poolMember.findUnique({
+      where: { poolId_userId: { poolId, userId } },
+    });
+
+    if (!member) {
+      throw new Error('User is not a member of this pool');
+    }
+
+    // If remainingBudget is null, budget is unlimited for this member
+    if (member.remainingBudget !== null) {
+      const remainingBudget = Number(member.remainingBudget);
+      
+      if (amount > remainingBudget) {
+        throw new Error(`Insufficient budget. You have $${remainingBudget.toFixed(2)} remaining.`);
+      }
+    }
   }
 
   // Create bid record
@@ -285,12 +310,24 @@ async function processItemSale(poolId: string, io: Server) {
       },
     });
 
-    // Update member spending
+    // Get member to update budget
+    const member = await prisma.poolMember.findUnique({
+      where: { poolId_userId: { poolId, userId: activeItem.currentBidderId } },
+    });
+
+    // Update member spending and deduct from budget if enabled
+    const updateData: { totalSpent: { increment: typeof activeItem.currentBid }; remainingBudget?: { decrement: typeof activeItem.currentBid } } = {
+      totalSpent: { increment: activeItem.currentBid },
+    };
+
+    // Deduct from remaining budget if budgetEnabled and member has a budget
+    if (activeItem.pool.budgetEnabled && member?.remainingBudget !== null) {
+      updateData.remainingBudget = { decrement: activeItem.currentBid };
+    }
+
     await prisma.poolMember.update({
       where: { poolId_userId: { poolId, userId: activeItem.currentBidderId } },
-      data: {
-        totalSpent: { increment: activeItem.currentBid },
-      },
+      data: updateData,
     });
 
     // Broadcast sale
@@ -334,5 +371,259 @@ export function stopAuctionTimer(poolId: string) {
     clearInterval(timer);
     auctionTimers.delete(poolId);
   }
+}
+
+// ============================================
+// WHEEL SPIN AUCTION FUNCTIONS
+// ============================================
+
+/**
+ * Fisher-Yates shuffle algorithm
+ */
+function shuffleArray<T>(array: T[]): T[] {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+/**
+ * Initialize wheel spin auction - shuffles teams and assigns to participants
+ */
+export async function initializeWheelSpinAuction(poolId: string, io: Server): Promise<void> {
+  const pool = await prisma.pool.findUnique({
+    where: { id: poolId },
+    include: {
+      members: {
+        include: {
+          user: { select: { id: true, displayName: true } },
+        },
+      },
+      auctionItems: {
+        where: { status: 'PENDING' },
+        include: { team: true },
+        orderBy: { order: 'asc' },
+      },
+    },
+  });
+
+  if (!pool) throw new Error('Pool not found');
+  if (pool.auctionMode !== 'WHEEL_SPIN') throw new Error('Pool is not configured for wheel spin auction');
+
+  const members = pool.members.filter(m => m.role !== 'COMMISSIONER' || pool.members.length === 1);
+  const teams = pool.auctionItems.map(item => ({
+    teamId: item.teamId,
+    teamName: item.team.name,
+    itemId: item.id,
+  }));
+
+  // Shuffle teams
+  const shuffledTeams = shuffleArray(teams);
+
+  // Assign teams to participants in round-robin fashion
+  const assignments: { teamId: string; userId: string; teamName: string; userName: string }[] = [];
+  
+  shuffledTeams.forEach((team, index) => {
+    const member = members[index % members.length];
+    assignments.push({
+      teamId: team.teamId,
+      userId: member.userId,
+      teamName: team.teamName,
+      userName: member.user.displayName,
+    });
+  });
+
+  // Store the spin queue
+  wheelSpinQueues.set(poolId, assignments.map(a => ({ teamId: a.teamId, userId: a.userId })));
+  currentSpinParticipant.set(poolId, 0);
+
+  // Broadcast initialization
+  io.to(`pool:${poolId}`).emit('wheelSpinInitialized', {
+    totalTeams: teams.length,
+    participants: members.map(m => ({
+      id: m.userId,
+      displayName: m.user.displayName,
+    })),
+    assignments: assignments.map((a, i) => ({
+      order: i + 1,
+      teamName: a.teamName,
+      userName: a.userName,
+    })),
+  });
+}
+
+/**
+ * Execute wheel spin for current team
+ */
+export async function executeWheelSpin(poolId: string, io: Server): Promise<{
+  team: { id: string; name: string; seed: number | null; region: string | null };
+  assignedUser: { id: string; displayName: string };
+  spinIndex: number;
+  totalSpins: number;
+}> {
+  const queue = wheelSpinQueues.get(poolId);
+  const currentIndex = currentSpinParticipant.get(poolId) || 0;
+
+  if (!queue || currentIndex >= queue.length) {
+    throw new Error('No more teams to spin');
+  }
+
+  const assignment = queue[currentIndex];
+
+  // Get team details
+  const team = await prisma.team.findUnique({
+    where: { id: assignment.teamId },
+  });
+
+  const user = await prisma.user.findUnique({
+    where: { id: assignment.userId },
+    select: { id: true, displayName: true },
+  });
+
+  if (!team || !user) throw new Error('Team or user not found');
+
+  // Get all teams for the wheel display
+  const pool = await prisma.pool.findUnique({
+    where: { id: poolId },
+    include: {
+      auctionItems: {
+        where: { status: 'PENDING' },
+        include: { team: true },
+      },
+    },
+  });
+
+  const allTeams = pool?.auctionItems.map(item => ({
+    id: item.team.id,
+    name: item.team.name,
+    seed: item.team.seed,
+    region: item.team.region,
+    shortName: item.team.shortName,
+  })) || [];
+
+  // Broadcast spin start with all wheel data
+  io.to(`pool:${poolId}`).emit('wheelSpinStart', {
+    teams: allTeams,
+    targetTeamId: team.id,
+    assignedUserId: user.id,
+    assignedUserName: user.displayName,
+    spinDuration: WHEEL_SPIN_DURATION,
+    spinIndex: currentIndex + 1,
+    totalSpins: queue.length,
+  });
+
+  // Update the auction item to ACTIVE and set the assigned user as first bidder
+  const auctionItem = await prisma.auctionItem.findFirst({
+    where: { poolId, teamId: team.id },
+  });
+
+  if (auctionItem) {
+    await prisma.auctionItem.update({
+      where: { id: auctionItem.id },
+      data: {
+        status: 'ACTIVE',
+        currentBidderId: user.id,
+        currentBid: auctionItem.startingBid, // Start with starting bid for assigned user
+      },
+    });
+
+    // Create initial bid record
+    await prisma.bid.create({
+      data: {
+        auctionItemId: auctionItem.id,
+        userId: user.id,
+        amount: Number(auctionItem.startingBid),
+      },
+    });
+  }
+
+  // Increment spin index
+  currentSpinParticipant.set(poolId, currentIndex + 1);
+
+  return {
+    team: {
+      id: team.id,
+      name: team.name,
+      seed: team.seed,
+      region: team.region,
+    },
+    assignedUser: user,
+    spinIndex: currentIndex + 1,
+    totalSpins: queue.length,
+  };
+}
+
+/**
+ * Complete wheel spin and start bidding timer
+ */
+export async function completeWheelSpin(poolId: string, io: Server): Promise<void> {
+  // Broadcast spin complete
+  io.to(`pool:${poolId}`).emit('wheelSpinComplete', {
+    message: 'Bidding is now open!',
+  });
+
+  // Start the auction timer for bidding
+  resetAuctionTimer(poolId, io);
+
+  // Broadcast updated auction state
+  const state = await getAuctionState(poolId);
+  io.to(`pool:${poolId}`).emit('auctionStateUpdate', state);
+}
+
+/**
+ * Get wheel spin state for a pool
+ */
+export function getWheelSpinState(poolId: string): {
+  currentIndex: number;
+  totalTeams: number;
+  isActive: boolean;
+} {
+  const queue = wheelSpinQueues.get(poolId);
+  const currentIndex = currentSpinParticipant.get(poolId) || 0;
+
+  return {
+    currentIndex,
+    totalTeams: queue?.length || 0,
+    isActive: !!queue && currentIndex < queue.length,
+  };
+}
+
+/**
+ * Check if pool is in wheel spin mode
+ */
+export async function isWheelSpinPool(poolId: string): Promise<boolean> {
+  const pool = await prisma.pool.findUnique({
+    where: { id: poolId },
+    select: { auctionMode: true },
+  });
+  return pool?.auctionMode === 'WHEEL_SPIN';
+}
+
+/**
+ * Get matchup brief for current auction item
+ */
+export async function getMatchupBrief(poolId: string): Promise<string | null> {
+  const currentItem = await prisma.auctionItem.findFirst({
+    where: { poolId, status: 'ACTIVE' },
+    include: { team: true },
+  });
+
+  if (!currentItem) return null;
+
+  // Find the game where this team is playing
+  const game = await prisma.game.findFirst({
+    where: {
+      OR: [
+        { team1Id: currentItem.teamId },
+        { team2Id: currentItem.teamId },
+      ],
+      status: 'SCHEDULED',
+    },
+    orderBy: { scheduledAt: 'asc' },
+  });
+
+  return game?.matchupBrief || null;
 }
 

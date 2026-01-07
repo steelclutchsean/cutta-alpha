@@ -22,6 +22,10 @@ import {
   Sparkles,
   Share2,
   Link as LinkIcon,
+  Globe,
+  Lock,
+  Zap,
+  Wallet,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { useTournaments } from '@/lib/hooks';
@@ -41,7 +45,14 @@ type PayoutTrigger =
   | 'FIRST_FOUR'
   | 'UPSET_BONUS'
   | 'HIGHEST_SEED_WIN'
-  | 'CUSTOM';
+  | 'CUSTOM'
+  // NFL-specific triggers
+  | 'SUPER_BOWL_WIN'
+  | 'CONFERENCE_CHAMPIONSHIP'
+  | 'DIVISIONAL_ROUND'
+  | 'WILD_CARD_WIN';
+
+type AuctionMode = 'TRADITIONAL' | 'WHEEL_SPIN';
 
 interface PayoutRule {
   name: string;
@@ -51,7 +62,8 @@ interface PayoutRule {
   triggerValue?: string;
 }
 
-const TRIGGER_OPTIONS: { value: PayoutTrigger; label: string; description: string }[] = [
+// March Madness trigger options
+const MARCH_MADNESS_TRIGGER_OPTIONS: { value: PayoutTrigger; label: string; description: string }[] = [
   { value: 'CHAMPIONSHIP_WIN', label: 'National Champion', description: 'Team wins the championship' },
   { value: 'FINAL_FOUR', label: 'Final Four', description: 'Team reaches Final Four' },
   { value: 'ELITE_EIGHT', label: 'Elite Eight', description: 'Team reaches Elite Eight' },
@@ -63,7 +75,18 @@ const TRIGGER_OPTIONS: { value: PayoutTrigger; label: string; description: strin
   { value: 'CUSTOM', label: 'Custom', description: 'Custom payout rule' },
 ];
 
-const PAYOUT_TEMPLATES = [
+// NFL Playoffs trigger options
+const NFL_TRIGGER_OPTIONS: { value: PayoutTrigger; label: string; description: string }[] = [
+  { value: 'SUPER_BOWL_WIN', label: 'Super Bowl Champion', description: 'Team wins the Super Bowl' },
+  { value: 'CONFERENCE_CHAMPIONSHIP', label: 'Conference Champion', description: 'Team wins AFC/NFC Championship' },
+  { value: 'DIVISIONAL_ROUND', label: 'Divisional Round Win', description: 'Team wins Divisional Round' },
+  { value: 'WILD_CARD_WIN', label: 'Wild Card Win', description: 'Team wins Wild Card game' },
+  { value: 'UPSET_BONUS', label: 'Upset Bonus', description: 'Lower seed beats higher seed' },
+  { value: 'CUSTOM', label: 'Custom', description: 'Custom payout rule' },
+];
+
+// March Madness payout templates
+const MARCH_MADNESS_TEMPLATES = [
   {
     name: 'Standard (50/25/12.5)',
     rules: [
@@ -88,6 +111,37 @@ const PAYOUT_TEMPLATES = [
     ],
   },
 ];
+
+// NFL Playoffs payout templates
+const NFL_PAYOUT_TEMPLATES = [
+  {
+    name: 'NFL Standard',
+    rules: [
+      { name: 'Super Bowl Champion', percentage: 50, trigger: 'SUPER_BOWL_WIN' as PayoutTrigger },
+      { name: 'Super Bowl Runner-up', percentage: 15, trigger: 'SUPER_BOWL_WIN' as PayoutTrigger, triggerValue: 'runner_up' },
+      { name: 'Conference Champion (each)', percentage: 7.5, trigger: 'CONFERENCE_CHAMPIONSHIP' as PayoutTrigger },
+      { name: 'Divisional Round Win (each)', percentage: 3.75, trigger: 'DIVISIONAL_ROUND' as PayoutTrigger },
+      { name: 'Wild Card Win (each)', percentage: 1.25, trigger: 'WILD_CARD_WIN' as PayoutTrigger },
+    ],
+  },
+  {
+    name: 'Top Heavy',
+    rules: [
+      { name: 'Super Bowl Champion', percentage: 60, trigger: 'SUPER_BOWL_WIN' as PayoutTrigger },
+      { name: 'Super Bowl Runner-up', percentage: 20, trigger: 'SUPER_BOWL_WIN' as PayoutTrigger, triggerValue: 'runner_up' },
+      { name: 'Conference Champion (each)', percentage: 10, trigger: 'CONFERENCE_CHAMPIONSHIP' as PayoutTrigger },
+    ],
+  },
+  {
+    name: 'Winner Takes All',
+    rules: [
+      { name: 'Super Bowl Champion', percentage: 100, trigger: 'SUPER_BOWL_WIN' as PayoutTrigger },
+    ],
+  },
+];
+
+// Legacy export for backwards compatibility
+const PAYOUT_TEMPLATES = MARCH_MADNESS_TEMPLATES;
 
 const STEPS: { key: Step; label: string; icon: typeof Trophy }[] = [
   { key: 'basics', label: 'Pool Details', icon: Trophy },
@@ -115,9 +169,33 @@ export default function CreatePoolPage() {
   const [auctionDate, setAuctionDate] = useState('');
   const [auctionTime, setAuctionTime] = useState('19:00');
   const [secondaryMarketEnabled, setSecondaryMarketEnabled] = useState(true);
+  const [auctionMode, setAuctionMode] = useState<AuctionMode>('TRADITIONAL');
   const [payoutRules, setPayoutRules] = useState<PayoutRule[]>(PAYOUT_TEMPLATES[0].rules);
+  
+  // New pool settings
+  const [isPublic, setIsPublic] = useState(false);
+  const [autoStartAuction, setAutoStartAuction] = useState(false);
+  const [budgetEnabled, setBudgetEnabled] = useState(false);
+  const [auctionBudget, setAuctionBudget] = useState<number | null>(null);
 
   const selectedTournament = tournaments?.find((t: any) => t.id === tournamentId);
+  const isNFLTournament = selectedTournament?.sport === 'NFL';
+
+  // Get appropriate templates and triggers based on tournament type
+  const currentPayoutTemplates = isNFLTournament ? NFL_PAYOUT_TEMPLATES : MARCH_MADNESS_TEMPLATES;
+  const currentTriggerOptions = isNFLTournament ? NFL_TRIGGER_OPTIONS : MARCH_MADNESS_TRIGGER_OPTIONS;
+
+  // Update payout rules when tournament changes
+  useEffect(() => {
+    if (isNFLTournament) {
+      setPayoutRules(NFL_PAYOUT_TEMPLATES[0].rules);
+      // Default to wheel spin for NFL
+      setAuctionMode('WHEEL_SPIN');
+    } else {
+      setPayoutRules(MARCH_MADNESS_TEMPLATES[0].rules);
+      setAuctionMode('TRADITIONAL');
+    }
+  }, [isNFLTournament]);
   const totalPercentage = payoutRules.reduce((sum, rule) => sum + rule.percentage, 0);
   const isPayoutValid = Math.abs(totalPercentage - 100) < 0.01;
 
@@ -130,6 +208,10 @@ export default function CreatePoolPage() {
       case 'tournament':
         return !!tournamentId;
       case 'settings':
+        // If auto-start, don't require date/time
+        if (autoStartAuction) {
+          return buyIn >= 0;
+        }
         return buyIn >= 0 && auctionDate && auctionTime;
       case 'payouts':
         return isPayoutValid && payoutRules.length > 0;
@@ -159,7 +241,10 @@ export default function CreatePoolPage() {
 
     setIsLoading(true);
     try {
-      const auctionStartTime = new Date(`${auctionDate}T${auctionTime}`).toISOString();
+      // Only set auctionStartTime if not auto-starting
+      const auctionStartTime = autoStartAuction 
+        ? undefined 
+        : new Date(`${auctionDate}T${auctionTime}`).toISOString();
 
       const pool = await poolsApi.create(token, {
         name,
@@ -169,11 +254,21 @@ export default function CreatePoolPage() {
         maxParticipants: maxParticipants || undefined,
         auctionStartTime,
         secondaryMarketEnabled,
+        auctionMode,
+        isPublic,
+        autoStartAuction,
+        budgetEnabled,
+        auctionBudget: budgetEnabled ? auctionBudget : undefined,
         payoutRules,
       });
 
       setCreatedPool(pool);
       toast.success('Pool created successfully!');
+      
+      // If auto-start, redirect directly to draft room
+      if (autoStartAuction) {
+        router.push(`/pools/${pool.id}/draft`);
+      }
     } catch (error: any) {
       toast.error(error.message || 'Failed to create pool');
     } finally {
@@ -506,12 +601,35 @@ export default function CreatePoolPage() {
             <div className="space-y-6">
               <div>
                 <h2 className="text-xl font-bold mb-1">Pool Settings</h2>
-                <p className="text-dark-400">Configure buy-in and auction timing</p>
+                <p className="text-dark-400">Configure buy-in, visibility, and auction timing</p>
+              </div>
+
+              {/* Public/Private Toggle */}
+              <div className="glass-card">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isPublic ? 'bg-primary-500/20' : 'bg-dark-600'}`}>
+                      {isPublic ? <Globe className="w-5 h-5 text-primary-400" /> : <Lock className="w-5 h-5 text-dark-400" />}
+                    </div>
+                    <div>
+                      <h3 className="font-medium text-white">{isPublic ? 'Public Pool' : 'Private Pool'}</h3>
+                      <p className="text-sm text-dark-400">
+                        {isPublic ? 'Anyone can discover and join this pool' : 'Only people with the invite link can join'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setIsPublic(!isPublic)}
+                    className={`glass-toggle ${isPublic ? 'active' : ''}`}
+                  >
+                    <div className="glass-toggle-thumb" />
+                  </button>
+                </div>
               </div>
 
               <div className="grid sm:grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-sm font-medium mb-2 text-dark-200">Buy-in Amount *</label>
+                  <label className="block text-sm font-medium mb-2 text-dark-200">Buy-in Amount</label>
                   <div className="relative">
                     <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-dark-400" />
                     <input
@@ -522,7 +640,7 @@ export default function CreatePoolPage() {
                       className="glass-input pl-10"
                     />
                   </div>
-                  <p className="text-xs text-dark-500 mt-2">Entry fee for participants</p>
+                  <p className="text-xs text-dark-500 mt-2">{buyIn === 0 ? 'Free pool - no entry fee' : 'Entry fee for participants'}</p>
                 </div>
 
                 <div>
@@ -543,30 +661,105 @@ export default function CreatePoolPage() {
                 </div>
               </div>
 
-              <div className="grid sm:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium mb-2 text-dark-200">Auction Date *</label>
-                  <input
-                    type="date"
-                    value={auctionDate}
-                    onChange={(e) => setAuctionDate(e.target.value)}
-                    min={new Date().toISOString().split('T')[0]}
-                    className="glass-input"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-2 text-dark-200">Auction Time *</label>
-                  <input
-                    type="time"
-                    value={auctionTime}
-                    onChange={(e) => setAuctionTime(e.target.value)}
-                    className="glass-input"
-                  />
+              {/* Auto-Start Toggle */}
+              <div className="glass-card">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${autoStartAuction ? 'bg-gold-500/20' : 'bg-dark-600'}`}>
+                      <Zap className={`w-5 h-5 ${autoStartAuction ? 'text-gold-400' : 'text-dark-400'}`} />
+                    </div>
+                    <div>
+                      <h3 className="font-medium text-white">Start Auction Immediately</h3>
+                      <p className="text-sm text-dark-400">
+                        {autoStartAuction ? 'Auction starts as soon as pool is created' : 'Schedule auction for a specific date/time'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setAutoStartAuction(!autoStartAuction)}
+                    className={`glass-toggle ${autoStartAuction ? 'active' : ''}`}
+                  >
+                    <div className="glass-toggle-thumb" />
+                  </button>
                 </div>
               </div>
 
+              {/* Date/Time fields - only show if not auto-starting */}
+              {!autoStartAuction && (
+                <div className="grid sm:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium mb-2 text-dark-200">Auction Date *</label>
+                    <input
+                      type="date"
+                      value={auctionDate}
+                      onChange={(e) => setAuctionDate(e.target.value)}
+                      min={new Date().toISOString().split('T')[0]}
+                      className="glass-input"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2 text-dark-200">Auction Time *</label>
+                    <input
+                      type="time"
+                      value={auctionTime}
+                      onChange={(e) => setAuctionTime(e.target.value)}
+                      className="glass-input"
+                    />
+                  </div>
+                </div>
+              )}
+
               <div className="glass-divider" />
+
+              {/* Budget Controls */}
+              <div className="glass-card">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${budgetEnabled ? 'bg-primary-500/20' : 'bg-dark-600'}`}>
+                      <Wallet className={`w-5 h-5 ${budgetEnabled ? 'text-primary-400' : 'text-dark-400'}`} />
+                    </div>
+                    <div>
+                      <h3 className="font-medium text-white">Auction Budget Limits</h3>
+                      <p className="text-sm text-dark-400">
+                        {budgetEnabled ? 'Each member has a spending limit' : 'Unlimited bidding (no budget cap)'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setBudgetEnabled(!budgetEnabled);
+                      if (!budgetEnabled && auctionBudget === null) {
+                        // Default budget to buy-in amount when enabling
+                        setAuctionBudget(buyIn > 0 ? buyIn : 100);
+                      }
+                    }}
+                    className={`glass-toggle ${budgetEnabled ? 'active' : ''}`}
+                  >
+                    <div className="glass-toggle-thumb" />
+                  </button>
+                </div>
+                
+                {budgetEnabled && (
+                  <div className="mt-4 pt-4 border-t border-white/5">
+                    <label className="block text-sm font-medium mb-2 text-dark-200">Budget per Member</label>
+                    <div className="relative">
+                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-dark-400" />
+                      <input
+                        type="number"
+                        value={auctionBudget || ''}
+                        onChange={(e) => setAuctionBudget(e.target.value ? Number(e.target.value) : null)}
+                        min={1}
+                        placeholder="Enter budget amount"
+                        className="glass-input pl-10"
+                      />
+                    </div>
+                    <p className="text-xs text-dark-500 mt-2">
+                      Maximum amount each member can spend during the auction
+                    </p>
+                  </div>
+                )}
+              </div>
 
               <div className="glass-card">
                 <div className="flex items-center justify-between">
@@ -586,6 +779,59 @@ export default function CreatePoolPage() {
                     <div className="glass-toggle-thumb" />
                   </button>
                 </div>
+              </div>
+
+              {/* Auction Mode Selection */}
+              <div className="glass-card">
+                <h3 className="font-medium text-white mb-4">Auction Mode</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => setAuctionMode('TRADITIONAL')}
+                    className={`p-4 rounded-xl transition-all text-left ${
+                      auctionMode === 'TRADITIONAL'
+                        ? 'bg-primary-500/15 border border-primary-500/40 shadow-glass-glow'
+                        : 'glass-card-hover'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                        auctionMode === 'TRADITIONAL' ? 'bg-primary-500' : 'bg-white/10'
+                      }`}>
+                        <DollarSign className={`w-4 h-4 ${auctionMode === 'TRADITIONAL' ? 'text-dark-900' : 'text-dark-400'}`} />
+                      </div>
+                      <span className="font-medium">Traditional</span>
+                    </div>
+                    <p className="text-xs text-dark-400">
+                      Classic bidding auction where participants bid on teams one at a time
+                    </p>
+                  </button>
+
+                  <button
+                    onClick={() => setAuctionMode('WHEEL_SPIN')}
+                    className={`p-4 rounded-xl transition-all text-left ${
+                      auctionMode === 'WHEEL_SPIN'
+                        ? 'bg-gold-500/15 border border-gold-500/40 shadow-glass-glow'
+                        : 'glass-card-hover'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                        auctionMode === 'WHEEL_SPIN' ? 'bg-gold-500' : 'bg-white/10'
+                      }`}>
+                        <Sparkles className={`w-4 h-4 ${auctionMode === 'WHEEL_SPIN' ? 'text-dark-900' : 'text-dark-400'}`} />
+                      </div>
+                      <span className="font-medium">Wheel Spin</span>
+                    </div>
+                    <p className="text-xs text-dark-400">
+                      Random wheel assigns teams to participants, then bidding begins
+                    </p>
+                  </button>
+                </div>
+                {isNFLTournament && (
+                  <p className="text-xs text-gold-400 mt-3">
+                    💡 Wheel Spin is recommended for NFL Playoffs pools
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -610,9 +856,11 @@ export default function CreatePoolPage() {
 
               {/* Templates */}
               <div className="glass-card">
-                <p className="text-sm text-dark-400 mb-3">Quick Templates:</p>
+                <p className="text-sm text-dark-400 mb-3">
+                  Quick Templates {isNFLTournament ? '(NFL)' : '(March Madness)'}:
+                </p>
                 <div className="flex flex-wrap gap-2">
-                  {PAYOUT_TEMPLATES.map((template) => (
+                  {currentPayoutTemplates.map((template) => (
                     <button
                       key={template.name}
                       onClick={() => setPayoutRules(template.rules)}
@@ -660,7 +908,7 @@ export default function CreatePoolPage() {
                               value={rule.trigger}
                               onChange={(e) => {
                                 const trigger = e.target.value as PayoutTrigger;
-                                const option = TRIGGER_OPTIONS.find(o => o.value === trigger);
+                                const option = currentTriggerOptions.find(o => o.value === trigger);
                                 updateRule(index, { 
                                   trigger,
                                   name: rule.name || option?.label || '',
@@ -668,7 +916,7 @@ export default function CreatePoolPage() {
                               }}
                               className="glass-select w-full text-sm"
                             >
-                              {TRIGGER_OPTIONS.map((option) => (
+                              {currentTriggerOptions.map((option) => (
                                 <option key={option.value} value={option.value}>
                                   {option.label}
                                 </option>
@@ -754,22 +1002,48 @@ export default function CreatePoolPage() {
                   <div className="grid sm:grid-cols-2 gap-4">
                     <div>
                       <p className="text-xs text-dark-500 mb-1">Buy-in</p>
-                      <p className="font-bold text-2xl text-gold-400">{formatCurrency(buyIn)}</p>
+                      <p className="font-bold text-2xl text-gold-400">
+                        {buyIn === 0 ? 'Free' : formatCurrency(buyIn)}
+                      </p>
                     </div>
                     <div>
                       <p className="text-xs text-dark-500 mb-1">Max Participants</p>
                       <p className="font-semibold text-white">{maxParticipants || 'Unlimited'}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-dark-500 mb-1">Auction Date/Time</p>
+                      <p className="text-xs text-dark-500 mb-1">Pool Visibility</p>
+                      <span className={`glass-badge ${isPublic ? 'glass-badge-success' : 'bg-dark-600 border-dark-500 text-dark-300'}`}>
+                        {isPublic ? '🌐 Public' : '🔒 Private'}
+                      </span>
+                    </div>
+                    <div>
+                      <p className="text-xs text-dark-500 mb-1">Auction Start</p>
+                      {autoStartAuction ? (
+                        <span className="glass-badge bg-gold-500/20 border-gold-500/30 text-gold-400">
+                          ⚡ Immediate
+                        </span>
+                      ) : (
+                        <p className="font-semibold text-white">
+                          {new Date(`${auctionDate}T${auctionTime}`).toLocaleString()}
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-xs text-dark-500 mb-1">Budget per Member</p>
                       <p className="font-semibold text-white">
-                        {new Date(`${auctionDate}T${auctionTime}`).toLocaleString()}
+                        {budgetEnabled && auctionBudget ? formatCurrency(auctionBudget) : 'Unlimited'}
                       </p>
                     </div>
                     <div>
                       <p className="text-xs text-dark-500 mb-1">Secondary Market</p>
                       <span className={`glass-badge ${secondaryMarketEnabled ? 'glass-badge-success' : 'bg-red-500/20 border-red-500/30 text-red-400'}`}>
                         {secondaryMarketEnabled ? 'Enabled' : 'Disabled'}
+                      </span>
+                    </div>
+                    <div>
+                      <p className="text-xs text-dark-500 mb-1">Auction Mode</p>
+                      <span className={`glass-badge ${auctionMode === 'WHEEL_SPIN' ? 'bg-gold-500/20 border-gold-500/30 text-gold-400' : 'glass-badge-success'}`}>
+                        {auctionMode === 'WHEEL_SPIN' ? '🎡 Wheel Spin' : '💰 Traditional'}
                       </span>
                     </div>
                   </div>

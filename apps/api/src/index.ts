@@ -14,6 +14,8 @@ import { tournamentsRouter } from './routes/tournaments.js';
 import { webhooksRouter } from './routes/webhooks.js';
 import { livekitRouter } from './routes/livekit.js';
 import { notificationsRouter } from './routes/notifications.js';
+import { adminRouter } from './routes/admin.js';
+import { startGamePolling } from './services/sports-data.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -80,6 +82,7 @@ app.use('/tournaments', tournamentsRouter);
 app.use('/webhooks', webhooksRouter);
 app.use('/livekit', livekitRouter);
 app.use('/notifications', notificationsRouter);
+app.use('/admin', adminRouter);
 
 // Error handling
 app.use(errorHandler);
@@ -90,6 +93,13 @@ const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, () => {
   console.log(`🚀 API server running on port ${PORT}`);
   console.log(`📡 WebSocket server ready`);
+  
+  // Start game polling for live score updates
+  if (process.env.ENABLE_LIVE_SCORES !== 'false') {
+    const pollInterval = parseInt(process.env.ESPN_POLL_INTERVAL || '30000', 10);
+    startGamePolling(io, pollInterval);
+    console.log(`🏈 Live score polling started (every ${pollInterval / 1000}s)`);
+  }
 });
 
 export { app, httpServer, io };

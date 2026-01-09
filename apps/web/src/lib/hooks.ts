@@ -33,6 +33,10 @@ export function useCommissionedPools() {
   return useAuthenticatedSWR('commissioned-pools', poolsApi.commissioned);
 }
 
+export function useDiscoverPools() {
+  return useAuthenticatedSWR('discover-pools', poolsApi.discover);
+}
+
 export function usePool(poolId: string | null) {
   return useAuthenticatedSWR(
     poolId ? `pool-${poolId}` : null,

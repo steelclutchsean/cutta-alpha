@@ -458,16 +458,93 @@ export async function initializeWheelSpinAuction(poolId: string, io: Server): Pr
  * Execute wheel spin for current team
  */
 export async function executeWheelSpin(poolId: string, io: Server): Promise<{
-  team: { id: string; name: string; seed: number | null; region: string | null };
+  team: { id: string; name: string; shortName: string; seed: number | null; region: string | null };
+  teams: { id: string; name: string; shortName: string; seed: number | null; region: string | null }[];
   assignedUser: { id: string; displayName: string };
   spinIndex: number;
   totalSpins: number;
 }> {
-  const queue = wheelSpinQueues.get(poolId);
-  const currentIndex = currentSpinParticipant.get(poolId) || 0;
+  let queue = wheelSpinQueues.get(poolId);
+  let currentIndex = currentSpinParticipant.get(poolId) || 0;
 
-  if (!queue || currentIndex >= queue.length) {
-    throw new Error('No more teams to spin');
+  // First, always get pending items to know what's available
+  const pendingItems = await prisma.auctionItem.findMany({
+    where: { poolId, status: 'PENDING' },
+    include: { team: true },
+    orderBy: { order: 'asc' },
+  });
+
+  // Check for no teams early
+  if (pendingItems.length === 0) {
+    throw new Error('No more teams to spin - all teams have been assigned');
+  }
+
+  // Auto-reinitialize queue if empty, exhausted, or if there are more pending items than queue (teams added)
+  const needsReinit = !queue || currentIndex >= queue.length || queue.length !== pendingItems.length;
+  
+  if (needsReinit) {
+    // Get pool info
+    const pool = await prisma.pool.findUnique({
+      where: { id: poolId },
+      include: {
+        members: {
+          include: {
+            user: { select: { id: true, displayName: true } },
+          },
+        },
+      },
+    });
+
+    if (!pool) {
+      throw new Error('Pool not found');
+    }
+
+    // Pool must be LIVE or IN_PROGRESS (backwards compatibility) or OPEN (for first spin after init)
+    if (pool.status !== 'LIVE' && pool.status !== 'IN_PROGRESS' && pool.status !== 'OPEN') {
+      throw new Error(`Pool must be LIVE to spin wheel (current status: ${pool.status}). Please initialize the wheel spin first.`);
+    }
+
+    // Get members - include commissioner if they're the only member
+    const members = pool.members.filter(m => m.role !== 'COMMISSIONER' || pool.members.length === 1);
+    
+    if (members.length === 0) {
+      throw new Error('No eligible members to assign teams to');
+    }
+
+    // Auto-reinitialize the queue
+    console.log(`Initializing wheel spin queue for pool ${poolId} with ${pendingItems.length} pending teams and ${members.length} members`);
+    
+    const teams = pendingItems.map(item => ({
+      teamId: item.teamId,
+      teamName: item.team.name,
+    }));
+
+    // Shuffle teams
+    const shuffledTeams = shuffleArray(teams);
+
+    // Assign teams to participants in round-robin fashion
+    const assignments = shuffledTeams.map((team, index) => {
+      const member = members[index % members.length];
+      return {
+        teamId: team.teamId,
+        userId: member.userId,
+      };
+    });
+
+    // Re-populate the queue
+    wheelSpinQueues.set(poolId, assignments);
+    currentSpinParticipant.set(poolId, 0);
+    
+    queue = assignments;
+    currentIndex = 0;
+
+    // Also ensure pool is LIVE
+    if (pool.status === 'OPEN') {
+      await prisma.pool.update({
+        where: { id: poolId },
+        data: { status: 'LIVE' },
+      });
+    }
   }
 
   const assignment = queue[currentIndex];
@@ -484,24 +561,14 @@ export async function executeWheelSpin(poolId: string, io: Server): Promise<{
 
   if (!team || !user) throw new Error('Team or user not found');
 
-  // Get all teams for the wheel display
-  const pool = await prisma.pool.findUnique({
-    where: { id: poolId },
-    include: {
-      auctionItems: {
-        where: { status: 'PENDING' },
-        include: { team: true },
-      },
-    },
-  });
-
-  const allTeams = pool?.auctionItems.map(item => ({
+  // Format all teams for the wheel display (use the pendingItems we already fetched)
+  const allTeams = pendingItems.map(item => ({
     id: item.team.id,
     name: item.team.name,
     seed: item.team.seed,
     region: item.team.region,
     shortName: item.team.shortName,
-  })) || [];
+  }));
 
   // Broadcast spin start with all wheel data
   io.to(`pool:${poolId}`).emit('wheelSpinStart', {
@@ -546,9 +613,11 @@ export async function executeWheelSpin(poolId: string, io: Server): Promise<{
     team: {
       id: team.id,
       name: team.name,
+      shortName: team.shortName,
       seed: team.seed,
       region: team.region,
     },
+    teams: allTeams, // Include teams array in HTTP response for frontend
     assignedUser: user,
     spinIndex: currentIndex + 1,
     totalSpins: queue.length,

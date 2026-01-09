@@ -300,8 +300,66 @@ export const auctionApi = {
   getWheelSpinState: (token: string, poolId: string) =>
     fetchApi<any>(`/auction/${poolId}/wheel-spin/state`, { token }),
 
+  getWheelTeams: (token: string, poolId: string) =>
+    fetchApi<{ teams: Array<{ id: string; name: string; shortName: string; seed: number | null; region: string | null }> }>(`/auction/${poolId}/wheel-spin/teams`, { token }),
+
   getMatchupBrief: (token: string, poolId: string) =>
     fetchApi<{ matchupBrief: string | null }>(`/auction/${poolId}/matchup-brief`, { token }),
+
+  // Studio/Commissioner endpoints
+  sellNow: (token: string, poolId: string) =>
+    fetchApi<any>(`/auction/${poolId}/sell-now`, {
+      method: 'POST',
+      token,
+    }),
+
+  startItem: (token: string, poolId: string, itemId: string) =>
+    fetchApi<any>(`/auction/${poolId}/start-item/${itemId}`, {
+      method: 'POST',
+      token,
+    }),
+
+  reorderQueue: (token: string, poolId: string, itemOrder: Array<{ itemId: string; order: number }>) =>
+    fetchApi<any>(`/auction/${poolId}/order`, {
+      method: 'PUT',
+      body: JSON.stringify({ itemOrder }),
+      token,
+    }),
+
+  revertAuction: (token: string, poolId: string, itemId: string) =>
+    fetchApi<any>(`/auction/${poolId}/revert/${itemId}`, {
+      method: 'POST',
+      token,
+    }),
+
+  endAuction: (token: string, poolId: string) =>
+    fetchApi<any>(`/auction/${poolId}/end`, {
+      method: 'POST',
+      token,
+    }),
+
+  // Chat moderation
+  getMutedUsers: (token: string, poolId: string) =>
+    fetchApi<Array<{ id: string; displayName: string; mutedUntil: string | null }>>(`/auction/${poolId}/chat/muted`, { token }),
+
+  muteUser: (token: string, poolId: string, userId: string, duration?: number) =>
+    fetchApi<any>(`/auction/${poolId}/chat/mute/${userId}`, {
+      method: 'POST',
+      body: JSON.stringify({ duration }),
+      token,
+    }),
+
+  unmuteUser: (token: string, poolId: string, userId: string) =>
+    fetchApi<any>(`/auction/${poolId}/chat/unmute/${userId}`, {
+      method: 'POST',
+      token,
+    }),
+
+  deleteMessage: (token: string, poolId: string, messageId: string) =>
+    fetchApi<any>(`/auction/${poolId}/chat/message/${messageId}`, {
+      method: 'DELETE',
+      token,
+    }),
 };
 
 // Market

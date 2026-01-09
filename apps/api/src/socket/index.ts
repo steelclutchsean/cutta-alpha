@@ -181,6 +181,25 @@ export function initializeSocket(httpServer: HttpServer): Server {
         return;
       }
 
+      // Check if user is muted
+      const member = await prisma.poolMember.findUnique({
+        where: { poolId_userId: { poolId, userId: socket.data.userId } },
+      });
+
+      if (member?.isMuted) {
+        // Check if mute has expired
+        if (member.mutedUntil && new Date() > member.mutedUntil) {
+          // Unmute the user
+          await prisma.poolMember.update({
+            where: { poolId_userId: { poolId, userId: socket.data.userId } },
+            data: { isMuted: false, mutedUntil: null },
+          });
+        } else {
+          socket.emit('error', { message: 'You are muted in this chat', code: 'USER_MUTED' });
+          return;
+        }
+      }
+
       const user = await prisma.user.findUnique({
         where: { id: socket.data.userId },
         select: { displayName: true, avatarUrl: true },

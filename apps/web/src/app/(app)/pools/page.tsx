@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { Plus, Users, Trophy, Calendar, Search, Filter, ChevronRight, Settings, Crown, Sparkles } from 'lucide-react';
+import { Plus, Users, Trophy, Calendar, Search, Filter, ChevronRight, Settings, Crown, Sparkles, Globe, Zap, Radio, Play } from 'lucide-react';
 import { usePools } from '@/lib/hooks';
 import { formatCurrency } from '@cutta/shared';
 
@@ -14,40 +14,109 @@ export default function PoolsPage() {
   const [filter, setFilter] = useState<FilterType>('all');
   const [search, setSearch] = useState('');
 
+  // Only LIVE status pools have active auctions
+  const livePools = pools?.filter((p: any) => p.status === 'LIVE') || [];
+
   const filteredPools = pools?.filter((pool: any) => {
     const matchesSearch = pool.name.toLowerCase().includes(search.toLowerCase());
     const matchesFilter = filter === 'all' ||
       (filter === 'commissioned' && pool.myRole === 'COMMISSIONER') ||
-      (filter === 'live' && (pool.status === 'LIVE' || pool.status === 'IN_PROGRESS')) ||
+      (filter === 'live' && pool.status === 'LIVE') ||
       (filter === 'upcoming' && (pool.status === 'OPEN' || pool.status === 'DRAFT')) ||
-      (filter === 'completed' && pool.status === 'COMPLETED');
+      (filter === 'completed' && (pool.status === 'COMPLETED' || pool.status === 'IN_PROGRESS'));
     return matchesSearch && matchesFilter;
   }) || [];
 
   const filterCounts = {
     all: pools?.length || 0,
     commissioned: pools?.filter((p: any) => p.myRole === 'COMMISSIONER').length || 0,
-    live: pools?.filter((p: any) => p.status === 'LIVE' || p.status === 'IN_PROGRESS').length || 0,
+    live: livePools.length,
     upcoming: pools?.filter((p: any) => p.status === 'OPEN' || p.status === 'DRAFT').length || 0,
-    completed: pools?.filter((p: any) => p.status === 'COMPLETED').length || 0,
+    completed: pools?.filter((p: any) => p.status === 'COMPLETED' || p.status === 'IN_PROGRESS').length || 0,
   };
 
   return (
     <div className="space-y-6">
+      {/* Live Auctions Quick Join Banner */}
+      {livePools.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-panel !p-0 overflow-hidden border-accent-red/30"
+        >
+          {/* Animated background */}
+          <div className="absolute inset-0 bg-gradient-to-r from-accent-red/5 via-accent-blue/5 to-accent-red/5" />
+          
+          <div className="relative p-5">
+            <div className="flex flex-col md:flex-row md:items-center gap-4">
+              <div className="flex items-center gap-4 flex-1">
+                <div className="relative">
+                  <div className="w-14 h-14 rounded-2xl bg-accent-red/15 flex items-center justify-center">
+                    <Radio className="w-7 h-7 text-accent-red" />
+                  </div>
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-accent-red rounded-full animate-ping opacity-75" />
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-accent-red rounded-full" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-text-primary flex items-center gap-2">
+                    Live Auctions
+                    <span className="px-2 py-0.5 rounded-full bg-accent-red/20 text-accent-red text-xs font-semibold">
+                      {livePools.length} Active
+                    </span>
+                  </h2>
+                  <p className="text-sm text-text-tertiary mt-0.5">
+                    Jump into an ongoing auction and start bidding
+                  </p>
+                </div>
+              </div>
+              
+              {/* Quick join buttons */}
+              <div className="flex flex-wrap gap-2">
+                {livePools.slice(0, 2).map((pool: any) => (
+                  <Link
+                    key={pool.id}
+                    href={`/pools/${pool.id}/draft`}
+                    className="glass-btn !py-2.5 !px-4 border-accent-red/20 hover:border-accent-red/40 group"
+                  >
+                    <Play className="w-4 h-4 text-accent-red" />
+                    <span className="text-sm font-medium truncate max-w-[120px]">
+                      {pool.name}
+                    </span>
+                    <ChevronRight className="w-4 h-4 text-text-tertiary group-hover:text-accent-red transition-colors" />
+                  </Link>
+                ))}
+                {livePools.length > 2 && (
+                  <button
+                    onClick={() => setFilter('live')}
+                    className="glass-btn !py-2.5 !px-4"
+                  >
+                    <span className="text-sm">+{livePools.length - 2} more</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-white">My Pools</h1>
-          <p className="text-dark-400">Manage your Calcutta auction pools</p>
+          <h1 className="text-3xl font-bold text-text-primary">My Pools</h1>
+          <p className="text-text-tertiary mt-1">Manage your Calcutta auction pools</p>
         </div>
         <div className="flex gap-3">
+          <Link href="/pools/discover" className="glass-btn">
+            <Globe className="w-4 h-4" />
+            Discover
+          </Link>
           <Link href="/pools/join" className="glass-btn">
             <Users className="w-4 h-4" />
-            Join Pool
+            Join
           </Link>
-          <Link href="/pools/create" className="glass-btn-gold">
+          <Link href="/pools/create" className="btn-solid-gold">
             <Plus className="w-4 h-4" />
-            Create Pool
+            Create
           </Link>
         </div>
       </div>
@@ -56,7 +125,7 @@ export default function PoolsPage() {
       <div className="glass-card p-4">
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-dark-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-tertiary" />
             <input
               type="text"
               placeholder="Search pools..."
@@ -70,10 +139,11 @@ export default function PoolsPage() {
               <button
                 key={f}
                 onClick={() => setFilter(f)}
-                className={`glass-tab whitespace-nowrap ${filter === f ? 'active' : ''}`}
+                className={`glass-tab whitespace-nowrap flex items-center gap-1.5 ${filter === f ? 'active' : ''}`}
               >
+                {f === 'live' && <span className="w-1.5 h-1.5 rounded-full bg-accent-red animate-pulse" />}
                 {f.charAt(0).toUpperCase() + f.slice(1)}
-                <span className="ml-1.5 text-xs opacity-70">({filterCounts[f]})</span>
+                <span className="text-xs opacity-70">({filterCounts[f]})</span>
               </button>
             ))}
           </div>
@@ -85,9 +155,9 @@ export default function PoolsPage() {
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3].map((i) => (
             <div key={i} className="glass-card animate-pulse h-48">
-              <div className="h-4 bg-white/5 rounded w-3/4 mb-3" />
-              <div className="h-3 bg-white/5 rounded w-1/2 mb-6" />
-              <div className="h-8 bg-white/5 rounded" />
+              <div className="h-4 bg-text-quaternary/20 rounded w-3/4 mb-3" />
+              <div className="h-3 bg-text-quaternary/20 rounded w-1/2 mb-6" />
+              <div className="h-8 bg-text-quaternary/20 rounded" />
             </div>
           ))}
         </div>
@@ -106,22 +176,26 @@ export default function PoolsPage() {
         </div>
       ) : (
         <div className="glass-panel text-center py-16">
-          <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center mx-auto mb-6">
-            <Users className="w-8 h-8 text-dark-500" />
+          <div className="w-16 h-16 rounded-2xl bg-text-quaternary/10 flex items-center justify-center mx-auto mb-6">
+            <Users className="w-8 h-8 text-text-quaternary" />
           </div>
-          <h3 className="text-xl font-bold mb-2 text-white">No pools found</h3>
-          <p className="text-dark-400 mb-8 max-w-sm mx-auto">
+          <h3 className="text-xl font-bold mb-2 text-text-primary">No pools found</h3>
+          <p className="text-text-tertiary mb-8 max-w-sm mx-auto">
             {search
               ? 'Try a different search term'
               : filter !== 'all'
               ? `No ${filter} pools`
               : 'Create or join a pool to get started'}
           </p>
-          <div className="flex justify-center gap-3">
-            <Link href="/pools/join" className="glass-btn">
-              Join Pool
+          <div className="flex flex-wrap justify-center gap-3">
+            <Link href="/pools/discover" className="glass-btn-primary">
+              <Globe className="w-4 h-4" />
+              Discover Pools
             </Link>
-            <Link href="/pools/create" className="glass-btn-gold">
+            <Link href="/pools/join" className="glass-btn">
+              Have Invite Code
+            </Link>
+            <Link href="/pools/create" className="btn-solid-gold">
               <Plus className="w-4 h-4" />
               Create Pool
             </Link>
@@ -133,16 +207,21 @@ export default function PoolsPage() {
 }
 
 function PoolCard({ pool }: { pool: any }) {
-  const isLive = pool.status === 'LIVE' || pool.status === 'IN_PROGRESS';
+  const isLive = pool.status === 'LIVE';
   const isUpcoming = pool.status === 'OPEN' || pool.status === 'DRAFT';
   const isCommissioner = pool.myRole === 'COMMISSIONER';
 
   return (
-    <div className={`glass-card-hover h-full ${isLive ? '!border-primary-500/30 shadow-glass-glow' : ''}`}>
-      <Link href={isLive ? `/pools/${pool.id}/draft` : `/pools/${pool.id}`}>
+    <div className={`glass-card-hover h-full relative overflow-hidden ${isLive ? 'border-accent-red/30 shadow-[0_0_30px_rgba(var(--accent-red),0.15)]' : ''}`}>
+      {/* Live auction glow effect */}
+      {isLive && (
+        <div className="absolute inset-0 bg-gradient-to-br from-accent-red/5 to-transparent pointer-events-none" />
+      )}
+      
+      <Link href={isLive ? `/pools/${pool.id}/draft` : `/pools/${pool.id}`} className="relative block">
         <div className="flex items-start justify-between mb-4">
           <div>
-            <h3 className="font-bold text-white flex items-center gap-2">
+            <h3 className="font-bold text-text-primary flex items-center gap-2">
               {pool.name}
               {isCommissioner && (
                 <span className="glass-badge-gold !py-0.5 !px-1.5">
@@ -150,7 +229,7 @@ function PoolCard({ pool }: { pool: any }) {
                 </span>
               )}
             </h3>
-            <p className="text-sm text-dark-400">
+            <p className="text-sm text-text-tertiary">
               {pool.tournament?.name} {pool.tournament?.year}
             </p>
           </div>
@@ -166,18 +245,18 @@ function PoolCard({ pool }: { pool: any }) {
         </div>
 
         <div className="flex items-center gap-4 text-sm mb-4">
-          <span className="flex items-center gap-1.5 text-dark-300">
-            <Users className="w-4 h-4 text-primary-400/70" />
+          <span className="flex items-center gap-1.5 text-text-tertiary">
+            <Users className="w-4 h-4 text-accent-blue/70" />
             {pool.memberCount || pool._count?.members || 0}
           </span>
-          <span className="flex items-center gap-1.5 text-gold-400">
+          <span className="flex items-center gap-1.5 text-accent-gold">
             <Trophy className="w-4 h-4" />
             {formatCurrency(Number(pool.totalPot || 0))}
           </span>
         </div>
 
         {isUpcoming && pool.auctionStartTime && (
-          <div className="glass-badge !bg-white/3 !border-white/5 text-dark-400">
+          <div className="glass-badge !bg-glass-bg !border-glass-border text-text-tertiary">
             <Calendar className="w-3 h-3" />
             {new Date(pool.auctionStartTime).toLocaleDateString('en-US', {
               weekday: 'short',
@@ -190,29 +269,42 @@ function PoolCard({ pool }: { pool: any }) {
         )}
       </Link>
 
-      <div className="flex items-center justify-between mt-4 pt-4 border-t border-white/5">
-        <span className="text-xs text-dark-500">
+      <div className="flex items-center justify-between mt-4 pt-4 border-t border-glass-border">
+        <span className="text-xs text-text-quaternary">
           {isCommissioner ? 'Commissioner' : 'Member'}
         </span>
         <div className="flex items-center gap-2">
           {isCommissioner && (
             <Link
               href={`/pools/${pool.id}/settings`}
-              className="p-1.5 rounded-lg hover:bg-white/5 transition-colors"
+              className="p-1.5 rounded-lg hover:bg-glass-bg transition-colors"
               onClick={(e) => e.stopPropagation()}
             >
-              <Settings className="w-4 h-4 text-dark-400 hover:text-white" />
+              <Settings className="w-4 h-4 text-text-tertiary hover:text-text-primary" />
             </Link>
           )}
           <Link
             href={isLive ? `/pools/${pool.id}/draft` : `/pools/${pool.id}`}
-            className="text-primary-400 text-sm flex items-center gap-1 hover:text-primary-300 transition-colors"
+            className={`text-sm font-medium flex items-center gap-1 transition-colors ${
+              isLive 
+                ? 'text-accent-red hover:text-accent-red/80' 
+                : 'text-accent-blue hover:text-accent-blue/80'
+            }`}
           >
-            {isLive ? 'Join Draft' : 'View'} <ChevronRight className="w-4 h-4" />
+            {isLive ? (
+              <>
+                <Zap className="w-4 h-4" />
+                Join Now
+              </>
+            ) : (
+              <>
+                View
+                <ChevronRight className="w-4 h-4" />
+              </>
+            )}
           </Link>
         </div>
       </div>
     </div>
   );
 }
-

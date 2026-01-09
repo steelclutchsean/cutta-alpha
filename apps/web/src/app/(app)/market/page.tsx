@@ -2,12 +2,13 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { TrendingUp, Search, Filter, DollarSign, Users, Tag } from 'lucide-react';
+import { TrendingUp, Search, Filter, DollarSign, Users, Tag, ShoppingCart, MessageSquare } from 'lucide-react';
 import { useMarketListings } from '@/lib/hooks';
 import { useAuth } from '@/lib/auth-context';
 import { formatCurrency } from '@cutta/shared';
 import toast from 'react-hot-toast';
 import { marketApi } from '@/lib/api';
+import TeamLogo from '@/components/TeamLogo';
 
 type TabType = 'listings' | 'my-listings' | 'my-offers';
 
@@ -40,12 +41,12 @@ export default function MarketPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold">Secondary Market</h1>
-        <p className="text-dark-300">Buy and sell team ownership</p>
+        <h1 className="text-2xl font-bold text-[rgb(var(--text-primary))]">Secondary Market</h1>
+        <p className="text-[rgb(var(--text-secondary))]">Buy and sell team ownership</p>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-dark-700 pb-4">
+      <div className="flex gap-2">
         {[
           { id: 'listings', label: 'All Listings' },
           { id: 'my-listings', label: 'My Listings' },
@@ -54,11 +55,7 @@ export default function MarketPage() {
           <button
             key={t.id}
             onClick={() => setTab(t.id as TabType)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              tab === t.id
-                ? 'bg-primary-500 text-white'
-                : 'text-dark-300 hover:text-white hover:bg-dark-700'
-            }`}
+            className={`glass-tab ${tab === t.id ? 'active' : ''}`}
           >
             {t.label}
           </button>
@@ -67,13 +64,13 @@ export default function MarketPage() {
 
       {/* Search */}
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-dark-400" />
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[rgb(var(--text-tertiary))]" />
         <input
           type="text"
           placeholder="Search by team name..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="input pl-10"
+          className="glass-input pl-12"
         />
       </div>
 
@@ -81,11 +78,11 @@ export default function MarketPage() {
       {isLoading ? (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div key={i} className="card animate-pulse">
-              <div className="h-4 bg-dark-600 rounded w-3/4 mb-2" />
-              <div className="h-3 bg-dark-600 rounded w-1/2 mb-4" />
-              <div className="h-12 bg-dark-600 rounded mb-4" />
-              <div className="h-10 bg-dark-600 rounded" />
+            <div key={i} className="glass-card animate-pulse">
+              <div className="h-4 bg-white/5 rounded w-3/4 mb-2" />
+              <div className="h-3 bg-white/5 rounded w-1/2 mb-4" />
+              <div className="h-12 bg-white/5 rounded mb-4" />
+              <div className="h-10 bg-white/5 rounded" />
             </div>
           ))}
         </div>
@@ -106,23 +103,35 @@ export default function MarketPage() {
           ))}
         </div>
       ) : (
-        <div className="card text-center py-16">
-          <TrendingUp className="w-12 h-12 text-dark-500 mx-auto mb-4" />
-          <h3 className="text-lg font-medium mb-2">No listings found</h3>
-          <p className="text-dark-300">
+        <div className="glass-panel text-center py-16">
+          <TrendingUp className="w-12 h-12 text-[rgb(var(--text-quaternary))] mx-auto mb-4" />
+          <h3 className="text-lg font-semibold text-[rgb(var(--text-primary))] mb-2">No listings found</h3>
+          <p className="text-[rgb(var(--text-secondary))]">
             {search ? 'Try a different search term' : 'Check back later for new listings'}
           </p>
         </div>
       )}
 
       {/* Market Info */}
-      <div className="card bg-dark-700/50">
-        <h3 className="font-medium mb-2">How it works</h3>
-        <ul className="text-sm text-dark-300 space-y-2">
-          <li>• List your owned teams for sale at any price</li>
-          <li>• Buyers can purchase immediately or make offers</li>
-          <li>• 1% platform fee on all transactions</li>
-          <li>• Ownership transfers instantly upon purchase</li>
+      <div className="glass-card">
+        <h3 className="font-semibold text-[rgb(var(--text-primary))] mb-3">How it works</h3>
+        <ul className="text-sm text-[rgb(var(--text-secondary))] space-y-2">
+          <li className="flex items-start gap-2">
+            <span className="text-[rgb(var(--accent-blue))]">•</span>
+            List your owned teams for sale at any price
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="text-[rgb(var(--accent-blue))]">•</span>
+            Buyers can purchase immediately or make offers
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="text-[rgb(var(--accent-blue))]">•</span>
+            1% platform fee on all transactions
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="text-[rgb(var(--accent-blue))]">•</span>
+            Ownership transfers instantly upon purchase
+          </li>
         </ul>
       </div>
     </div>
@@ -137,40 +146,46 @@ function ListingCard({ listing, onBuyNow }: { listing: any; onBuyNow: () => void
   const priceChange = ((askingPrice - originalPrice) / originalPrice) * 100;
 
   return (
-    <div className="card">
+    <div className="glass-card-hover group">
       {/* Header */}
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary-500/20 to-gold-500/20 flex items-center justify-center">
-            <span className="font-bold text-primary-400">#{team?.seed || '?'}</span>
-          </div>
+          <TeamLogo
+            logoUrl={team?.logoUrl}
+            teamName={team?.name || 'Unknown'}
+            shortName={team?.shortName}
+            seed={team?.seed}
+            size="lg"
+          />
           <div>
-            <h3 className="font-semibold">{team?.name || 'Unknown'}</h3>
-            <p className="text-sm text-dark-400">{team?.region} Region</p>
+            <h3 className="font-semibold text-[rgb(var(--text-primary))]">{team?.name || 'Unknown'}</h3>
+            <p className="text-sm text-[rgb(var(--text-tertiary))]">{team?.region} Region</p>
           </div>
         </div>
-        <span className="badge-gold">{listing.percentageForSale}%</span>
+        <span className="glass-badge-gold">{listing.percentageForSale}%</span>
       </div>
 
       {/* Pool */}
-      <p className="text-sm text-dark-400 mb-4">{pool?.name}</p>
+      <p className="text-sm text-[rgb(var(--text-secondary))] mb-4">
+        {pool?.tournament?.name} {pool?.tournament?.year} - {pool?.name}
+      </p>
 
       {/* Price */}
-      <div className="bg-dark-800 rounded-lg p-3 mb-4">
+      <div className="rounded-xl p-4 mb-4 bg-[rgba(var(--accent-gold),0.08)] border border-[rgba(var(--accent-gold),0.15)]">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-sm text-dark-400">Asking Price</span>
-          <span className="text-xl font-bold text-gold-400">
+          <span className="text-sm text-[rgb(var(--text-secondary))]">Asking Price</span>
+          <span className="text-xl font-bold text-[rgb(var(--accent-gold))]">
             {formatCurrency(askingPrice)}
           </span>
         </div>
         <div className="flex items-center justify-between text-sm">
-          <span className="text-dark-500">Original</span>
-          <span className="text-dark-400">{formatCurrency(originalPrice)}</span>
+          <span className="text-[rgb(var(--text-tertiary))]">Original</span>
+          <span className="text-[rgb(var(--text-secondary))]">{formatCurrency(originalPrice)}</span>
         </div>
         {priceChange !== 0 && !isNaN(priceChange) && (
           <div className="flex items-center justify-between text-sm mt-1">
-            <span className="text-dark-500">Change</span>
-            <span className={priceChange > 0 ? 'text-green-400' : 'text-red-400'}>
+            <span className="text-[rgb(var(--text-tertiary))]">Change</span>
+            <span className={priceChange > 0 ? 'text-[rgb(var(--accent-green))]' : 'text-[rgb(var(--accent-red))]'}>
               {priceChange > 0 ? '+' : ''}{priceChange.toFixed(1)}%
             </span>
           </div>
@@ -180,26 +195,40 @@ function ListingCard({ listing, onBuyNow }: { listing: any; onBuyNow: () => void
       {/* Seller */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-full bg-gradient-to-br from-primary-500 to-gold-500 flex items-center justify-center text-dark-900 text-xs font-bold">
+          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[rgb(var(--accent-blue))] to-[rgb(var(--accent-gold))] flex items-center justify-center text-white text-xs font-bold">
             {listing.seller?.displayName?.[0]?.toUpperCase() || '?'}
           </div>
-          <span className="text-sm text-dark-400">{listing.seller?.displayName}</span>
+          <span className="text-sm text-[rgb(var(--text-secondary))]">{listing.seller?.displayName}</span>
         </div>
         {listing.offerCount > 0 && (
-          <span className="text-xs text-dark-400">{listing.offerCount} offers</span>
+          <span className="text-xs text-[rgb(var(--text-tertiary))]">{listing.offerCount} offers</span>
         )}
       </div>
 
       {/* Actions */}
       <div className="flex gap-2">
         {listing.acceptingOffers && (
-          <button className="btn-secondary flex-1">Make Offer</button>
+          <motion.button 
+            whileHover={{ scale: 1.02, y: -2 }}
+            whileTap={{ scale: 0.98 }}
+            className="glass-btn flex-1 group/btn overflow-hidden relative"
+          >
+            <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover/btn:translate-x-full transition-transform duration-700" />
+            <MessageSquare className="w-4 h-4" />
+            <span>Make Offer</span>
+          </motion.button>
         )}
-        <button onClick={onBuyNow} className="btn-gold flex-1">
-          Buy Now
-        </button>
+        <motion.button 
+          onClick={onBuyNow} 
+          whileHover={{ scale: 1.02, y: -2 }}
+          whileTap={{ scale: 0.98 }}
+          className="flex-1 relative inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-3 font-semibold transition-all duration-300 bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg hover:shadow-emerald-500/30 overflow-hidden group/btn"
+        >
+          <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/25 to-transparent -translate-x-full group-hover/btn:translate-x-full transition-transform duration-700" />
+          <ShoppingCart className="w-4 h-4 relative" />
+          <span className="relative">Buy Now</span>
+        </motion.button>
       </div>
     </div>
   );
 }
-

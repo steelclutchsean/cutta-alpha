@@ -3,7 +3,12 @@ const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['@cutta/shared', '@cutta/ui'],
   images: {
-    domains: ['localhost', 'images.unsplash.com'],
+    remotePatterns: [
+      { protocol: 'https', hostname: 'localhost' },
+      { protocol: 'https', hostname: 'images.unsplash.com' },
+      { protocol: 'https', hostname: 'a.espncdn.com' },
+      { protocol: 'https', hostname: '*.espncdn.com' },
+    ],
   },
   experimental: {
     serverComponentsExternalPackages: [],

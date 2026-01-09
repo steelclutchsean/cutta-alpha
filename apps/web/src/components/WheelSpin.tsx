@@ -52,10 +52,36 @@ export default function WheelSpin({
   const [rotation, setRotation] = useState(0);
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [showCelebration, setShowCelebration] = useState(false);
+  const [idleRotation, setIdleRotation] = useState(0);
   const wheelRef = useRef<HTMLDivElement>(null);
   const controls = useAnimation();
+  const idleIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const segmentAngle = 360 / teams.length;
+  // Handle single team edge case - still show a full wheel but with one segment
+  const segmentAngle = teams.length > 0 ? 360 / Math.max(teams.length, 1) : 360;
+  const showSingleTeamMode = teams.length === 1;
+
+  // Idle rotation animation - slow continuous spin when not actively spinning
+  useEffect(() => {
+    if (!isSpinning && teams.length > 0) {
+      // Start idle rotation
+      idleIntervalRef.current = setInterval(() => {
+        setIdleRotation(prev => prev + 0.3); // Slow rotation speed
+      }, 50);
+
+      return () => {
+        if (idleIntervalRef.current) {
+          clearInterval(idleIntervalRef.current);
+        }
+      };
+    } else {
+      // Stop idle rotation when spinning
+      if (idleIntervalRef.current) {
+        clearInterval(idleIntervalRef.current);
+        idleIntervalRef.current = null;
+      }
+    }
+  }, [isSpinning, teams.length]);
 
   // Calculate target rotation to land on specific team
   const calculateTargetRotation = useCallback((teamId: string) => {
@@ -76,15 +102,17 @@ export default function WheelSpin({
   useEffect(() => {
     if (isSpinning && targetTeamId) {
       const targetRotation = calculateTargetRotation(targetTeamId);
+      const startRotation = rotation + idleRotation;
       
       controls.start({
-        rotate: rotation + targetRotation,
+        rotate: startRotation + targetRotation,
         transition: {
           duration: spinDuration / 1000,
           ease: [0.2, 0.8, 0.3, 1], // Custom easing for realistic wheel physics
         },
       }).then(() => {
-        setRotation(prev => prev + targetRotation);
+        setRotation(startRotation + targetRotation);
+        setIdleRotation(0); // Reset idle rotation
         const team = teams.find(t => t.id === targetTeamId);
         if (team) {
           setSelectedTeam(team);
@@ -96,30 +124,55 @@ export default function WheelSpin({
         }
       });
     }
-  }, [isSpinning, targetTeamId, calculateTargetRotation, controls, spinDuration, teams, onSpinComplete, rotation]);
+  }, [isSpinning, targetTeamId, calculateTargetRotation, controls, spinDuration, teams, onSpinComplete, rotation, idleRotation]);
 
   const getTeamColors = (shortName: string) => {
     return TEAM_COLORS[shortName] || DEFAULT_COLORS;
   };
 
+  // Combined rotation (idle + actual rotation)
+  const currentRotation = isSpinning ? rotation : rotation + idleRotation;
+
   return (
     <div className="relative flex flex-col items-center">
       {/* Wheel Container */}
       <div className="relative w-80 h-80 md:w-96 md:h-96">
-        {/* Outer Ring Glow */}
-        <div className="absolute inset-0 rounded-full bg-gradient-to-r from-primary-500/30 via-gold-500/30 to-primary-500/30 blur-xl animate-pulse" />
+        {/* Outer Ring Glow - pulsing when idle, brighter when spinning */}
+        <div 
+          className={`absolute inset-0 rounded-full bg-gradient-to-r from-primary-500/30 via-gold-500/30 to-primary-500/30 blur-xl transition-opacity duration-500 ${
+            isSpinning ? 'opacity-100 animate-pulse' : 'opacity-60'
+          }`} 
+        />
+        
+        {/* Ambient light rays when idle */}
+        {!isSpinning && teams.length > 0 && (
+          <div className="absolute inset-0 overflow-hidden rounded-full">
+            <div 
+              className="absolute inset-[-50%] opacity-20"
+              style={{
+                background: 'conic-gradient(from 0deg, transparent, rgba(255,191,0,0.3), transparent, rgba(99,102,241,0.3), transparent)',
+                animation: 'spin 8s linear infinite',
+              }}
+            />
+          </div>
+        )}
         
         {/* Pointer */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-2 z-20">
-          <div className="w-0 h-0 border-l-[16px] border-r-[16px] border-t-[24px] border-l-transparent border-r-transparent border-t-gold-400 drop-shadow-lg" />
+          <motion.div 
+            animate={isSpinning ? { scale: [1, 1.1, 1] } : {}}
+            transition={{ duration: 0.2, repeat: isSpinning ? Infinity : 0 }}
+            className="w-0 h-0 border-l-[16px] border-r-[16px] border-t-[24px] border-l-transparent border-r-transparent border-t-gold-400 drop-shadow-lg"
+          />
         </div>
 
         {/* Main Wheel */}
         <motion.div
           ref={wheelRef}
-          animate={controls}
+          animate={isSpinning ? controls : { rotate: currentRotation }}
+          transition={isSpinning ? undefined : { duration: 0.05, ease: 'linear' }}
           className="absolute inset-4 rounded-full overflow-hidden shadow-2xl"
-          style={{ rotate: rotation }}
+          style={!isSpinning ? { rotate: currentRotation } : undefined}
         >
           {/* Wheel Segments */}
           <svg viewBox="0 0 100 100" className="w-full h-full">
@@ -226,10 +279,18 @@ export default function WheelSpin({
             )}
           </motion.div>
         ) : (
-          <div className="glass-card !p-4">
-            <p className="text-dark-400">Ready to spin</p>
-            <p className="text-sm text-dark-500">{teams.length} teams on the wheel</p>
-          </div>
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="glass-card !p-4"
+          >
+            <p className="text-dark-300 font-medium">
+              {showSingleTeamMode ? 'Final Team!' : 'Ready to spin'}
+            </p>
+            <p className="text-sm text-dark-500">
+              {teams.length} {teams.length === 1 ? 'team' : 'teams'} on the wheel
+            </p>
+          </motion.div>
         )}
       </div>
 
@@ -267,16 +328,24 @@ export default function WheelSpin({
           </div>
         )}
       </AnimatePresence>
+
+      {/* CSS for conic gradient animation */}
+      <style jsx global>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 }
 
 // Export a mini version for previews
 export function WheelSpinMini({ teams }: { teams: Team[] }) {
-  const segmentAngle = 360 / teams.length;
+  const segmentAngle = teams.length > 0 ? 360 / teams.length : 360;
 
   return (
-    <div className="w-20 h-20 rounded-full overflow-hidden shadow-lg">
+    <div className="w-20 h-20 rounded-full overflow-hidden shadow-lg animate-[spin_20s_linear_infinite]">
       <svg viewBox="0 0 100 100" className="w-full h-full">
         {teams.map((team, index) => {
           const startAngle = index * segmentAngle - 90;
@@ -304,4 +373,3 @@ export function WheelSpinMini({ teams }: { teams: Team[] }) {
     </div>
   );
 }
-

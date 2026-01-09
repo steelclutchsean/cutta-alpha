@@ -232,6 +232,64 @@ pm2 save
    - After sign-in: `https://yourdomain.com/dashboard`
    - After sign-up: `https://yourdomain.com/dashboard`
 
+## LiveKit Setup (Video Streaming)
+
+LiveKit is used for live video streaming in the commissioner studio. We recommend using LiveKit Cloud for production.
+
+### LiveKit Cloud Setup (Recommended)
+
+1. Go to [cloud.livekit.io](https://cloud.livekit.io) and create an account
+2. Create a new project
+3. Copy your credentials:
+   - API Key: `APIxxxxxxx`
+   - API Secret: `xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`
+   - WebSocket URL: `wss://your-project.livekit.cloud`
+
+4. Add to your environment files:
+
+**apps/api/.env:**
+```env
+LIVEKIT_API_KEY=APIxxxxxxx
+LIVEKIT_API_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+LIVEKIT_URL=wss://your-project.livekit.cloud
+```
+
+**apps/web/.env.local:**
+```env
+NEXT_PUBLIC_LIVEKIT_URL=wss://your-project.livekit.cloud
+```
+
+### LiveKit Features
+
+The LiveKit integration enables:
+- **Commissioner Studio**: Live video broadcasting from the commissioner's camera
+- **Viewer Count**: Real-time viewer count in the studio
+- **Video Controls**: Mute/unmute audio, enable/disable video
+
+### Free Tier Limits
+
+LiveKit Cloud free tier includes:
+- 50 participants per room
+- 500 minutes/month
+- Perfect for development and small pools
+
+### Self-Hosted Alternative
+
+For larger deployments, you can self-host LiveKit:
+
+```bash
+# Install LiveKit server
+curl -sSL https://get.livekit.io | bash
+
+# Generate config
+livekit-server generate-config
+
+# Start server
+livekit-server --config config.yaml
+```
+
+See [LiveKit self-hosting docs](https://docs.livekit.io/realtime/self-hosting/) for details.
+
 ## Monitoring & Maintenance
 
 ### View Logs

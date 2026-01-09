@@ -16,12 +16,14 @@ import {
   Check,
   Crown,
   ChevronRight,
+  Radio,
 } from 'lucide-react';
 import { useState } from 'react';
 import { usePool } from '@/lib/hooks';
 import { useAuth } from '@/lib/auth-context';
 import { formatCurrency } from '@cutta/shared';
 import toast from 'react-hot-toast';
+import TeamLogo from '@/components/TeamLogo';
 
 export default function PoolDetailPage() {
   const params = useParams();
@@ -90,10 +92,18 @@ export default function PoolDetailPage() {
         </div>
         <div className="flex items-center gap-3">
           {isCommissioner && (
-            <Link href={`/pools/${poolId}/settings`} className="btn-secondary">
-              <Settings className="w-4 h-4" />
-              Settings
-            </Link>
+            <>
+              {pool.status === 'LIVE' && (
+                <Link href={`/pools/${poolId}/studio`} className="btn-primary">
+                  <Radio className="w-4 h-4" />
+                  Studio
+                </Link>
+              )}
+              <Link href={`/pools/${poolId}/settings`} className="btn-secondary">
+                <Settings className="w-4 h-4" />
+                Settings
+              </Link>
+            </>
           )}
           {(pool.status === 'LIVE' || pool.status === 'IN_PROGRESS') && (
             <Link href={`/pools/${poolId}/draft`} className="btn-gold">
@@ -245,16 +255,22 @@ export default function PoolDetailPage() {
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-dark-400">
-                      #{item.team?.seed}
-                    </span>
-                    <span className="font-medium truncate">{item.team?.name}</span>
-                  </div>
-                  <div className="flex items-center justify-between mt-1 text-xs text-dark-400">
-                    <span>{item.team?.region}</span>
-                    {item.winningBid && (
-                      <span className="text-gold-400">{formatCurrency(item.winningBid)}</span>
-                    )}
+                    <TeamLogo
+                      logoUrl={item.team?.logoUrl}
+                      teamName={item.team?.name || 'Unknown'}
+                      shortName={item.team?.shortName}
+                      seed={item.team?.seed}
+                      size="sm"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <span className="font-medium truncate block">{item.team?.name}</span>
+                      <div className="flex items-center justify-between text-xs text-dark-400">
+                        <span>{item.team?.region}</span>
+                        {item.winningBid && (
+                          <span className="text-gold-400">{formatCurrency(item.winningBid)}</span>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -352,6 +368,18 @@ export default function PoolDetailPage() {
           <div className="card">
             <h2 className="font-semibold mb-4">Quick Actions</h2>
             <div className="space-y-2">
+              {isCommissioner && pool.status === 'LIVE' && (
+                <Link
+                  href={`/pools/${poolId}/studio`}
+                  className="flex items-center justify-between p-3 bg-primary-500/10 rounded-lg hover:bg-primary-500/20 transition-colors border border-primary-500/20"
+                >
+                  <span className="flex items-center gap-2">
+                    <Radio className="w-4 h-4 text-primary-400" />
+                    <span className="text-primary-400 font-medium">Commissioner Studio</span>
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-primary-400" />
+                </Link>
+              )}
               <Link
                 href={`/pools/${poolId}/standings`}
                 className="flex items-center justify-between p-3 bg-dark-700/50 rounded-lg hover:bg-dark-700 transition-colors"

@@ -232,6 +232,8 @@ model PoolMember {
   totalSpent      Decimal  @default(0) @db.Decimal(12, 2)
   totalWinnings   Decimal  @default(0) @db.Decimal(12, 2)
   remainingBudget Decimal? @db.Decimal(12, 2)  // null = unlimited budget
+  isMuted         Boolean  @default(false)     // Chat moderation
+  mutedUntil      DateTime?                    // Temporary mute expiry
   
   joinedAt        DateTime @default(now())
 
@@ -487,6 +489,15 @@ enum PayoutStatus {
   FAILED
 }
 
+// Tracks which games have had their payouts processed (prevents duplicates)
+model PayoutLog {
+  id          String   @id @default(cuid())
+  gameId      String   @unique  // One log per game
+  processedAt DateTime @default(now())
+  
+  @@index([gameId])
+}
+
 // ============================================
 // CHAT & NOTIFICATIONS
 // ============================================
@@ -497,6 +508,8 @@ model ChatMessage {
   userId    String
   content   String
   reactions Json     @default("{}")
+  isDeleted Boolean  @default(false)  // Soft delete for moderation
+  deletedBy String?                    // User ID who deleted the message
   
   createdAt DateTime @default(now())
 

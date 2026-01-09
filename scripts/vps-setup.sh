@@ -119,6 +119,23 @@ server {
         proxy_read_timeout 86400;
     }
 }
+
+# LiveKit server (optional - can also connect directly on port 7880)
+server {
+    listen 80;
+    server_name livekit.yourdomain.com;
+
+    location / {
+        proxy_pass http://localhost:7880;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 86400;
+    }
+}
 EOF
 
 # Enable site
@@ -138,7 +155,7 @@ apt install -y certbot python3-certbot-nginx
 
 echo "
 ⚠️  After pointing your domains to this server, run:
-    sudo certbot --nginx -d yourdomain.com -d www.yourdomain.com -d api.yourdomain.com
+    sudo certbot --nginx -d yourdomain.com -d www.yourdomain.com -d api.yourdomain.com -d livekit.yourdomain.com
 "
 
 # ============================================
@@ -149,11 +166,99 @@ npm install -g pm2
 pm2 startup systemd
 
 # ============================================
+# Docker (for LiveKit)
+# ============================================
+echo "🐳 Installing Docker..."
+apt install -y apt-transport-https ca-certificates gnupg lsb-release
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+apt update
+apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+systemctl start docker
+systemctl enable docker
+
+# ============================================
+# LiveKit Server (for streaming)
+# ============================================
+echo "📺 Setting up LiveKit server..."
+
+# Generate LiveKit API keys
+LIVEKIT_API_KEY=$(openssl rand -hex 16)
+LIVEKIT_API_SECRET=$(openssl rand -hex 32)
+
+# Create LiveKit config directory
+mkdir -p /etc/livekit
+
+# Create LiveKit config file
+cat > /etc/livekit/livekit.yaml << EOF
+port: 7880
+rtc:
+  port_range_start: 50000
+  port_range_end: 60000
+  tcp_port: 7881
+  use_external_ip: true
+keys:
+  ${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}
+logging:
+  level: info
+EOF
+
+# Create Docker Compose file for LiveKit
+cat > /etc/livekit/docker-compose.yml << 'EOF'
+version: '3.8'
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: cutta-livekit
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - /etc/livekit/livekit.yaml:/livekit.yaml
+    command: --config /livekit.yaml
+EOF
+
+# Create systemd service for LiveKit
+cat > /etc/systemd/system/livekit.service << 'EOF'
+[Unit]
+Description=LiveKit Server
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=simple
+Restart=always
+WorkingDirectory=/etc/livekit
+ExecStart=/usr/bin/docker compose up
+ExecStop=/usr/bin/docker compose down
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Enable and start LiveKit
+systemctl daemon-reload
+systemctl enable livekit
+systemctl start livekit
+
+# Save LiveKit credentials
+cat > /var/www/cutta/livekit-credentials.txt << EOF
+LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
+LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
+LIVEKIT_URL=wss://yourdomain.com:7880
+EOF
+
+echo "📺 LiveKit credentials saved to /var/www/cutta/livekit-credentials.txt"
+
+# ============================================
 # Firewall
 # ============================================
 echo "🔥 Configuring firewall..."
 ufw allow OpenSSH
 ufw allow 'Nginx Full'
+# LiveKit ports
+ufw allow 7880/tcp   # LiveKit API/WebSocket
+ufw allow 7881/tcp   # WebRTC TCP
+ufw allow 50000:60000/udp  # WebRTC UDP
 ufw --force enable
 
 # ============================================
@@ -173,17 +278,31 @@ echo "
   3. Copy config/env.example to .env and configure
   4. Copy config/env.api.example to apps/api/.env
   5. Copy config/env.web.example to apps/web/.env.local
-  6. Run: pnpm install
-  7. Run: pnpm build
-  8. Run: pm2 start ecosystem.config.js
-  9. Configure SSL: certbot --nginx -d yourdomain.com -d api.yourdomain.com
+  6. Add LiveKit credentials from /var/www/cutta/livekit-credentials.txt to your .env files
+  7. Run: pnpm install
+  8. Run: pnpm build
+  9. Run: pm2 start ecosystem.config.js
+  10. Configure SSL: certbot --nginx -d yourdomain.com -d api.yourdomain.com -d livekit.yourdomain.com
+
+📺 LiveKit credentials saved to:
+  /var/www/cutta/livekit-credentials.txt
+  
+  Add these to your apps/api/.env:
+    LIVEKIT_API_KEY=<from credentials file>
+    LIVEKIT_API_SECRET=<from credentials file>
+    LIVEKIT_URL=wss://livekit.yourdomain.com
+  
+  Add this to your apps/web/.env.local:
+    NEXT_PUBLIC_LIVEKIT_URL=wss://livekit.yourdomain.com
 
 🔗 Useful commands:
-  - pm2 status        # Check app status
-  - pm2 logs          # View logs
-  - pm2 restart all   # Restart all apps
+  - pm2 status            # Check app status
+  - pm2 logs              # View logs
+  - pm2 restart all       # Restart all apps
   - systemctl status nginx
   - systemctl status postgresql
   - systemctl status redis
+  - systemctl status livekit  # Check LiveKit status
+  - docker logs cutta-livekit # View LiveKit logs
 "
 

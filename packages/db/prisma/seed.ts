@@ -1,5 +1,6 @@
 import { PrismaClient, Sport, TournamentStatus, PayoutTrigger, PoolStatus, AuctionItemStatus, OwnershipSource } from '@prisma/client';
 import bcrypt from 'bcrypt';
+import { NCAA_TEAM_LOGOS } from './team-logos.js';
 
 const prisma = new PrismaClient();
 
@@ -206,6 +207,7 @@ async function main() {
   
   for (const [region, teams] of Object.entries(MARCH_MADNESS_TEAMS)) {
     for (const team of teams) {
+      const logoUrl = NCAA_TEAM_LOGOS[team.name] || null;
       const created = await prisma.team.create({
         data: {
           tournamentId: tournament.id,
@@ -213,6 +215,7 @@ async function main() {
           shortName: team.shortName,
           seed: team.seed,
           region: region,
+          logoUrl: logoUrl,
           externalId: `${region}-${team.seed}-2025`,
         },
       });

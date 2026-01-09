@@ -1,4 +1,5 @@
 import { PrismaClient, Sport, TournamentStatus, PayoutTrigger, GameStatus } from '@prisma/client';
+import { NFL_TEAM_LOGOS } from './team-logos.js';
 
 const prisma = new PrismaClient();
 
@@ -103,33 +104,62 @@ async function main() {
 
   console.log(`✅ Created tournament: ${tournament.name} ${tournament.year}`);
 
-  // Clean up existing teams and games for this tournament
-  await prisma.game.deleteMany({ where: { tournamentId: tournament.id } });
-  await prisma.team.deleteMany({ where: { tournamentId: tournament.id } });
+  // Check if there are existing auction items referencing teams (active pools)
+  const existingTeams = await prisma.team.findMany({
+    where: { tournamentId: tournament.id },
+    include: { auctionItems: { take: 1 } },
+  });
+  
+  const hasActiveAuctions = existingTeams.some(t => t.auctionItems.length > 0);
+  
+  if (hasActiveAuctions) {
+    console.log('⚠️  Existing pools found - updating data without deletion');
+    // Just update games without recreating teams
+    await prisma.game.deleteMany({ where: { tournamentId: tournament.id } });
+  } else {
+    // Safe to clean up and recreate
+    await prisma.game.deleteMany({ where: { tournamentId: tournament.id } });
+    await prisma.team.deleteMany({ where: { tournamentId: tournament.id } });
+  }
 
-  // Create teams for each conference
+  // Create or update teams for each conference
   const teamMap: Record<string, string> = {};
   let teamCount = 0;
 
   for (const [conference, teams] of Object.entries(NFL_PLAYOFF_TEAMS)) {
     for (const team of teams) {
-      const created = await prisma.team.create({
-        data: {
+      const logoUrl = NFL_TEAM_LOGOS[team.name] || null;
+      const created = await prisma.team.upsert({
+        where: {
+          tournamentId_externalId: {
+            tournamentId: tournament.id,
+            externalId: `${conference}-${team.seed}-2026`,
+          },
+        },
+        update: {
+          name: team.name,
+          shortName: team.shortName,
+          seed: team.seed,
+          region: conference,
+          logoUrl: logoUrl,
+        },
+        create: {
           tournamentId: tournament.id,
           name: team.name,
           shortName: team.shortName,
           seed: team.seed,
           region: conference, // Using region field for conference (AFC/NFC)
+          logoUrl: logoUrl,
           externalId: `${conference}-${team.seed}-2026`,
         },
       });
       teamMap[team.name] = created.id;
       teamCount++;
-      console.log(`  📋 Created ${conference} #${team.seed}: ${team.name}`);
+      console.log(`  📋 ${hasActiveAuctions ? 'Updated' : 'Created'} ${conference} #${team.seed}: ${team.name}`);
     }
   }
 
-  console.log(`✅ Created ${teamCount} NFL playoff teams`);
+  console.log(`✅ ${hasActiveAuctions ? 'Updated' : 'Created'} ${teamCount} NFL playoff teams`);
 
   // Create Wild Card games with matchup briefs
   for (const matchup of WILD_CARD_MATCHUPS) {
@@ -141,8 +171,17 @@ async function main() {
       continue;
     }
 
-    await prisma.game.create({
-      data: {
+    await prisma.game.upsert({
+      where: {
+        externalId: `nfl-2026-wc-${matchup.gameNumber}`,
+      },
+      update: {
+        team1Id: homeTeamId, // Home team
+        team2Id: awayTeamId, // Away team
+        scheduledAt: matchup.scheduledAt,
+        matchupBrief: matchup.matchupBrief,
+      },
+      create: {
         tournamentId: tournament.id,
         round: 1, // Wild Card = Round 1
         gameNumber: matchup.gameNumber,

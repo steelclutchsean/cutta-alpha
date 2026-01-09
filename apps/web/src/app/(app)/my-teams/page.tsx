@@ -19,6 +19,7 @@ import { useAuth } from '@/lib/auth-context';
 import { formatCurrency } from '@cutta/shared';
 import toast from 'react-hot-toast';
 import { usersApi, marketApi } from '@/lib/api';
+import TeamLogo from '@/components/TeamLogo';
 
 interface Ownership {
   id: string;
@@ -287,21 +288,22 @@ export default function MyTeamsPage() {
                           >
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-4">
-                                {/* Seed Badge */}
-                                <div className={`w-12 h-12 rounded-lg flex items-center justify-center font-bold ${
-                                  ownership.auctionItem.team.seed <= 4
-                                    ? 'bg-gold-500/20 text-gold-400'
-                                    : ownership.auctionItem.team.seed <= 8
-                                    ? 'bg-primary-500/20 text-primary-400'
-                                    : 'bg-dark-600 text-dark-300'
-                                }`}>
-                                  #{ownership.auctionItem.team.seed}
-                                </div>
+                                {/* Team Logo */}
+                                <TeamLogo
+                                  logoUrl={(ownership.auctionItem.team as any).logoUrl}
+                                  teamName={ownership.auctionItem.team.name}
+                                  shortName={ownership.auctionItem.team.shortName}
+                                  seed={ownership.auctionItem.team.seed}
+                                  size="lg"
+                                />
 
                                 {/* Team Info */}
                                 <div>
                                   <div className="flex items-center gap-2">
                                     <h3 className="font-bold">{ownership.auctionItem.team.name}</h3>
+                                    <span className="text-xs text-dark-400 bg-dark-600 px-1.5 py-0.5 rounded">
+                                      #{ownership.auctionItem.team.seed}
+                                    </span>
                                     {ownership.auctionItem.team.isEliminated && (
                                       <span className="px-2 py-0.5 rounded text-xs bg-red-500/20 text-red-400">
                                         Eliminated

@@ -44,10 +44,36 @@ export interface ServerToClientEvents {
   userTyping: (data: { userId: string; displayName: string }) => void;
   userStoppedTyping: (data: { userId: string }) => void;
   
+  // Chat moderation events
+  userMuted: (data: { userId: string; mutedUntil: Date | null }) => void;
+  userUnmuted: (data: { userId: string }) => void;
+  messageDeleted: (data: { messageId: string }) => void;
+  
   // Pool events
   memberJoined: (data: { userId: string; displayName: string }) => void;
   memberLeft: (data: { userId: string }) => void;
   poolUpdated: (data: { poolId: string; status: string }) => void;
+  
+  // Studio/Commissioner events
+  auctionReverted: (data: { itemId: string }) => void;
+  viewerCountUpdate: (data: { count: number }) => void;
+  
+  // Wheel spin events
+  wheelSpinInitialized: (data: { 
+    totalTeams: number;
+    participants: Array<{ id: string; displayName: string }>;
+    assignments: Array<{ order: number; teamName: string; userName: string }>;
+  }) => void;
+  wheelSpinStart: (data: {
+    teams: Array<{ id: string; name: string; seed: number | null; region: string | null; shortName: string }>;
+    targetTeamId: string;
+    assignedUserId: string;
+    assignedUserName: string;
+    spinDuration: number;
+    spinIndex: number;
+    totalSpins: number;
+  }) => void;
+  wheelSpinComplete: (data: { message: string }) => void;
   
   // Tournament events
   gameUpdate: (data: { gameId: string; team1Score: number; team2Score: number; status: string }) => void;

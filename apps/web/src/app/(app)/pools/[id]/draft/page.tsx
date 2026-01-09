@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -13,20 +13,13 @@ import {
   Timer,
   DollarSign,
   Send,
-  Smile,
   Video,
-  VideoOff,
-  Volume2,
-  VolumeX,
-  Mic,
-  MicOff,
-  Radio,
   Settings,
-  X,
   Loader2,
   Sparkles,
   RotateCw,
   FileText,
+  Radio,
 } from 'lucide-react';
 import { usePool, useAuctionState } from '@/lib/hooks';
 import { useAuth } from '@/lib/auth-context';
@@ -36,6 +29,8 @@ import { formatCurrency, formatTimeRemaining } from '@cutta/shared';
 import toast from 'react-hot-toast';
 import { auctionApi, livekitApi } from '@/lib/api';
 import WheelSpin from '@/components/WheelSpin';
+import LiveStream from '@/components/LiveStream';
+import TeamLogo from '@/components/TeamLogo';
 
 export default function DraftRoomPage() {
   const params = useParams();
@@ -44,23 +39,18 @@ export default function DraftRoomPage() {
   const { user, token } = useAuth();
   const { data: pool, mutate: mutatePool } = usePool(poolId);
   const auctionState = useAuctionState(poolId);
-  const { placeBid, sendMessage } = useSocket();
+  const { socket, placeBid, sendMessage } = useSocket();
   const messages = useAuctionStore((state) => state.messages);
   const typingUsers = useAuctionStore((state) => state.typingUsers);
 
   const [bidAmount, setBidAmount] = useState('');
   const [chatMessage, setChatMessage] = useState('');
   const [showChat, setShowChat] = useState(true);
-  const [isMuted, setIsMuted] = useState(false);
 
   // Streaming state
-  const [isLive, setIsLive] = useState(false);
-  const [isVideoEnabled, setIsVideoEnabled] = useState(true);
-  const [isMicEnabled, setIsMicEnabled] = useState(true);
-  const [isConnecting, setIsConnecting] = useState(false);
   const [livekitToken, setLivekitToken] = useState<string | null>(null);
-  const localVideoRef = useRef<HTMLVideoElement>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
+  const [isLive, setIsLive] = useState(false);
+  const [isEnablingStream, setIsEnablingStream] = useState(false);
 
   // Wheel spin state
   const [wheelSpinTeams, setWheelSpinTeams] = useState<any[]>([]);
@@ -70,6 +60,7 @@ export default function DraftRoomPage() {
   const [wheelSpinState, setWheelSpinState] = useState<{ currentIndex: number; totalTeams: number; isActive: boolean } | null>(null);
   const [matchupBrief, setMatchupBrief] = useState<string | null>(null);
   const [showMatchupBrief, setShowMatchupBrief] = useState(false);
+  const [wheelTeamsLoading, setWheelTeamsLoading] = useState(false);
 
   const isCommissioner = pool?.commissionerId === user?.id;
   const isWheelSpinMode = pool?.auctionMode === 'WHEEL_SPIN';
@@ -86,14 +77,95 @@ export default function DraftRoomPage() {
     minBid + 25,
   ];
 
-  // Get LiveKit token for commissioner
+  // Get LiveKit token for streaming (for both commissioner and viewers)
   useEffect(() => {
-    if (isCommissioner && pool?.streamEnabled && token) {
+    if (pool?.streamEnabled && token) {
       livekitApi.getToken(token, poolId).then((data) => {
         setLivekitToken(data.token);
-      }).catch(console.error);
+      }).catch((err) => {
+        console.error('Failed to get LiveKit token:', err);
+      });
     }
-  }, [isCommissioner, pool?.streamEnabled, token, poolId]);
+  }, [pool?.streamEnabled, token, poolId]);
+
+  // Fetch wheel teams for wheel spin mode
+  const fetchWheelTeams = useCallback(async () => {
+    if (!token || !poolId) return;
+    setWheelTeamsLoading(true);
+    try {
+      const data = await auctionApi.getWheelTeams(token, poolId);
+      setWheelSpinTeams(data.teams || []);
+    } catch (err) {
+      console.error('Failed to fetch wheel teams:', err);
+    } finally {
+      setWheelTeamsLoading(false);
+    }
+  }, [token, poolId]);
+
+  // Load wheel teams when entering wheel spin mode draft room
+  useEffect(() => {
+    if (isWheelSpinMode && token && poolId) {
+      fetchWheelTeams();
+    }
+  }, [isWheelSpinMode, token, poolId, fetchWheelTeams]);
+
+  // Listen for wheel spin socket events
+  useEffect(() => {
+    if (!socket || !isWheelSpinMode) return;
+
+    // When wheel spin starts from another client (commissioner broadcasts)
+    const handleWheelSpinStart = (data: {
+      teams: any[];
+      targetTeamId: string;
+      assignedUserId: string;
+      assignedUserName: string;
+      spinDuration: number;
+      spinIndex: number;
+      totalSpins: number;
+    }) => {
+      setWheelSpinTeams(data.teams || []);
+      setTargetTeamId(data.targetTeamId);
+      setAssignedUserName(data.assignedUserName);
+      setIsSpinning(true);
+      setWheelSpinState({
+        currentIndex: data.spinIndex,
+        totalTeams: data.totalSpins,
+        isActive: true,
+      });
+    };
+
+    // When wheel spin completes and bidding opens
+    const handleWheelSpinComplete = () => {
+      setIsSpinning(false);
+    };
+
+    // When an item is sold, refresh the wheel teams
+    const handleItemSold = () => {
+      // Refresh wheel teams after an item is sold
+      fetchWheelTeams();
+    };
+
+    // When auction state updates (which includes after items sold)
+    const handleAuctionStateUpdate = () => {
+      // Only refresh wheel teams if not currently spinning
+      if (!isSpinning) {
+        fetchWheelTeams();
+      }
+    };
+
+    socket.on('wheelSpinStart', handleWheelSpinStart);
+    socket.on('wheelSpinComplete', handleWheelSpinComplete);
+    socket.on('itemSold', handleItemSold);
+    // Also listen for auction updates to keep teams in sync
+    socket.on('auctionStateUpdate', handleAuctionStateUpdate);
+
+    return () => {
+      socket.off('wheelSpinStart', handleWheelSpinStart);
+      socket.off('wheelSpinComplete', handleWheelSpinComplete);
+      socket.off('itemSold', handleItemSold);
+      socket.off('auctionStateUpdate', handleAuctionStateUpdate);
+    };
+  }, [socket, isWheelSpinMode, fetchWheelTeams, isSpinning]);
 
   const handleBid = useCallback((amount: number) => {
     if (!currentItem) return;
@@ -170,97 +242,30 @@ export default function DraftRoomPage() {
     }
   }, [isCommissioner]);
 
-  // Go live - start camera and microphone
-  const handleGoLive = async () => {
-    if (!isCommissioner || !pool?.streamEnabled) return;
-
-    setIsConnecting(true);
+  // Live stream handlers
+  const handleEnableStreaming = useCallback(async () => {
+    if (!token) return;
+    setIsEnablingStream(true);
     try {
-      // Request camera and microphone permissions
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { 
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          facingMode: 'user'
-        },
-        audio: true,
-      });
-
-      localStreamRef.current = stream;
-      
-      // Set state first - video element will be rendered, then useEffect will connect stream
-      setIsLive(true);
-      setIsVideoEnabled(true);
-      setIsMicEnabled(true);
-      toast.success('You are now live!');
+      await livekitApi.enableStreaming(token, poolId);
+      // Refresh pool data to get the updated streamEnabled status
+      await mutatePool();
+      toast.success('Streaming enabled! You can now go live.');
     } catch (error: any) {
-      console.error('Failed to go live:', error);
-      if (error.name === 'NotAllowedError') {
-        toast.error('Please allow camera and microphone access to go live');
-      } else if (error.name === 'NotFoundError') {
-        toast.error('Camera or microphone not found');
-      } else if (error.name === 'NotReadableError') {
-        toast.error('Camera or microphone is already in use');
-      } else {
-        toast.error('Failed to start streaming: ' + error.message);
-      }
+      toast.error(error.message || 'Failed to enable streaming');
     } finally {
-      setIsConnecting(false);
+      setIsEnablingStream(false);
     }
-  };
+  }, [token, poolId, mutatePool]);
 
-  // Connect stream to video element when both are available
-  useEffect(() => {
-    if (isLive && localStreamRef.current && localVideoRef.current) {
-      localVideoRef.current.srcObject = localStreamRef.current;
-      localVideoRef.current.play().catch(err => {
-        console.log('Video play handled:', err);
-      });
-    }
-  }, [isLive]);
+  const handleGoLive = useCallback(() => {
+    setIsLive(true);
+    toast.success('You are now live!');
+  }, []);
 
-  // Stop live streaming
-  const handleStopLive = () => {
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(track => track.stop());
-      localStreamRef.current = null;
-    }
-    if (localVideoRef.current) {
-      localVideoRef.current.srcObject = null;
-    }
+  const handleStopLive = useCallback(() => {
     setIsLive(false);
     toast.success('Stream ended');
-  };
-
-  // Toggle video
-  const handleToggleVideo = () => {
-    if (localStreamRef.current) {
-      const videoTrack = localStreamRef.current.getVideoTracks()[0];
-      if (videoTrack) {
-        videoTrack.enabled = !videoTrack.enabled;
-        setIsVideoEnabled(videoTrack.enabled);
-      }
-    }
-  };
-
-  // Toggle microphone
-  const handleToggleMic = () => {
-    if (localStreamRef.current) {
-      const audioTrack = localStreamRef.current.getAudioTracks()[0];
-      if (audioTrack) {
-        audioTrack.enabled = !audioTrack.enabled;
-        setIsMicEnabled(audioTrack.enabled);
-      }
-    }
-  };
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach(track => track.stop());
-      }
-    };
   }, []);
 
   if (!pool || !auctionState) {
@@ -295,12 +300,22 @@ export default function DraftRoomPage() {
               <span className="font-bold">{formatCurrency(auctionState.totalRaised)}</span>
             </div>
             {isCommissioner && (
-              <button
-                onClick={() => router.push(`/pools/${poolId}/settings`)}
-                className="glass-btn p-2"
-              >
-                <Settings className="w-5 h-5" />
-              </button>
+              <>
+                <button
+                  onClick={() => router.push(`/pools/${poolId}/studio`)}
+                  className="glass-btn-primary"
+                  title="Open Commissioner Studio"
+                >
+                  <Radio className="w-4 h-4" />
+                  Studio
+                </button>
+                <button
+                  onClick={() => router.push(`/pools/${poolId}/settings`)}
+                  className="glass-btn p-2"
+                >
+                  <Settings className="w-5 h-5" />
+                </button>
+              </>
             )}
             <button
               onClick={() => setShowChat(!showChat)}
@@ -316,127 +331,39 @@ export default function DraftRoomPage() {
           {/* Gradient overlay */}
           <div className="absolute inset-0 bg-gradient-to-b from-dark-900/50 to-transparent pointer-events-none z-10" />
           
-          {isLive && isCommissioner ? (
-            // Commissioner's local video preview
-            <div className="relative w-full h-full">
-              <video
-                ref={localVideoRef}
-                autoPlay
-                muted
-                playsInline
-                className={`w-full h-full object-cover ${!isVideoEnabled ? 'hidden' : ''}`}
-              />
-              {!isVideoEnabled && (
-                <div className="absolute inset-0 flex items-center justify-center bg-dark-800">
-                  <div className="text-center">
-                    <div className="w-20 h-20 rounded-2xl bg-white/5 flex items-center justify-center mx-auto mb-4">
-                      <VideoOff className="w-10 h-10 text-dark-500" />
-                    </div>
-                    <p className="text-dark-400">Camera off</p>
-                  </div>
-                </div>
-              )}
-              
-              {/* Live indicator - Glass Badge */}
-              <div className="absolute top-4 left-4 z-20 glass-badge-live">
-                <span className="w-2 h-2 bg-white rounded-full animate-pulse" />
-                <span className="font-bold">LIVE</span>
-              </div>
-
-              {/* Stream Controls - Glass Style */}
-              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 glass-panel !p-2 !rounded-full">
-                <button
-                  onClick={handleToggleMic}
-                  className={`p-3 rounded-full transition-all ${
-                    isMicEnabled 
-                      ? 'bg-white/10 hover:bg-white/15' 
-                      : 'bg-red-500/80 hover:bg-red-500'
-                  }`}
-                >
-                  {isMicEnabled ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
-                </button>
-                <button
-                  onClick={handleToggleVideo}
-                  className={`p-3 rounded-full transition-all ${
-                    isVideoEnabled 
-                      ? 'bg-white/10 hover:bg-white/15' 
-                      : 'bg-red-500/80 hover:bg-red-500'
-                  }`}
-                >
-                  {isVideoEnabled ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
-                </button>
-                <div className="w-px h-6 bg-white/10" />
-                <button
-                  onClick={handleStopLive}
-                  className="p-3 rounded-full bg-red-500/80 hover:bg-red-500 transition-all"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-          ) : pool.streamEnabled && !isCommissioner ? (
-            // Viewer sees stream placeholder
-            <div className="w-full h-full bg-dark-800/50 backdrop-blur-glass flex items-center justify-center">
-              <div className="text-center">
-                <div className="w-20 h-20 rounded-2xl bg-white/5 flex items-center justify-center mx-auto mb-4 animate-pulse">
-                  <Radio className="w-10 h-10 text-dark-500" />
-                </div>
-                <p className="text-dark-400">
-                  {isLive ? 'Stream loading...' : 'Waiting for commissioner to go live...'}
-                </p>
-              </div>
-            </div>
-          ) : isCommissioner && pool.streamEnabled ? (
-            // Commissioner can go live
-            <div className="text-center">
-              <div className="w-24 h-24 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary-500/20 to-gold-500/20 flex items-center justify-center shadow-glass-glow">
-                <Video className="w-12 h-12 text-primary-400" />
-              </div>
-              <p className="text-dark-400 mb-6">Go live to broadcast to your pool</p>
-              <button
-                onClick={handleGoLive}
-                disabled={isConnecting}
-                className="glass-btn-gold"
-              >
-                {isConnecting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Connecting...
-                  </>
-                ) : (
-                  <>
-                    <Radio className="w-4 h-4" />
-                    Go Live
-                  </>
-                )}
-              </button>
-            </div>
+          {pool.streamEnabled ? (
+            <LiveStream
+              token={livekitToken}
+              isHost={isCommissioner}
+              streamEnabled={pool.streamEnabled}
+              onGoLive={handleGoLive}
+              onStopLive={handleStopLive}
+            />
           ) : (
             <div className="text-center">
               <div className="w-20 h-20 rounded-2xl bg-white/5 flex items-center justify-center mx-auto mb-4">
                 <Video className="w-10 h-10 text-dark-600" />
               </div>
-              <p className="text-dark-400 mb-4">No stream active</p>
-              {isCommissioner && !pool.streamEnabled && (
+              <p className="text-dark-400 mb-4">Streaming not enabled</p>
+              {isCommissioner && (
                 <button
-                  onClick={() => router.push(`/pools/${poolId}/settings`)}
-                  className="glass-btn text-sm"
+                  onClick={handleEnableStreaming}
+                  disabled={isEnablingStream}
+                  className="glass-btn-gold"
                 >
-                  Enable Streaming
+                  {isEnablingStream ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Enabling...
+                    </>
+                  ) : (
+                    <>
+                      <Video className="w-4 h-4" />
+                      Enable Streaming & Go Live
+                    </>
+                  )}
                 </button>
               )}
-            </div>
-          )}
-
-          {/* Stream controls for viewers */}
-          {!isCommissioner && pool.streamEnabled && (
-            <div className="absolute bottom-4 right-4 z-20">
-              <button
-                onClick={() => setIsMuted(!isMuted)}
-                className="glass-btn p-2"
-              >
-                {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-              </button>
             </div>
           )}
         </div>
@@ -466,13 +393,25 @@ export default function DraftRoomPage() {
                 animate={{ opacity: 1, scale: 1 }}
                 className="glass-panel text-center mb-6 glass-border-animated"
               >
-                <div className="w-24 h-24 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-primary-500/20 to-gold-500/20 flex items-center justify-center shadow-glass">
-                  <span className="text-4xl font-bold text-white">
-                    #{currentItem.team.seed}
-                  </span>
+                <div className="w-24 h-24 mx-auto mb-4">
+                  <TeamLogo
+                    logoUrl={(currentItem.team as any).logoUrl}
+                    teamName={currentItem.team.name}
+                    shortName={(currentItem.team as any).shortName}
+                    seed={currentItem.team.seed}
+                    size="xl"
+                    className="w-24 h-24"
+                  />
                 </div>
                 <h2 className="text-3xl font-bold mb-2 text-white">{currentItem.team.name}</h2>
-                <p className="text-dark-400">{currentItem.team.region} {isWheelSpinMode ? 'Conference' : 'Region'}</p>
+                <div className="flex items-center justify-center gap-2">
+                  {currentItem.team.seed && (
+                    <span className="text-sm bg-white/10 px-2.5 py-1 rounded-lg text-dark-300">
+                      #{currentItem.team.seed}
+                    </span>
+                  )}
+                  <span className="text-dark-400">{currentItem.team.region} {isWheelSpinMode ? 'Conference' : 'Region'}</span>
+                </div>
 
                 {currentItem.currentBid && (
                   <div className="mt-6 pt-6 border-t border-white/5">
@@ -556,48 +495,83 @@ export default function DraftRoomPage() {
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center h-full text-center">
-              <div className="glass-panel max-w-md">
-                <div className="w-20 h-20 rounded-2xl bg-gold-500/10 flex items-center justify-center mx-auto mb-6">
-                  <Trophy className="w-10 h-10 text-gold-500/50" />
-                </div>
-                {auctionState.status === 'completed' ? (
-                  <>
-                    <h2 className="text-2xl font-bold mb-2 text-white">Auction Complete!</h2>
-                    <p className="text-dark-400">
-                      Total raised: <span className="text-gold-400 font-bold">{formatCurrency(auctionState.totalRaised)}</span>
-                    </p>
-                  </>
-                ) : isWheelSpinMode && isSpinning ? (
-                  // Show wheel spin animation
-                  <div className="w-full">
-                    <WheelSpin
-                      teams={wheelSpinTeams}
-                      targetTeamId={targetTeamId}
-                      isSpinning={isSpinning}
-                      assignedUserName={assignedUserName}
-                      onSpinComplete={handleWheelSpinComplete}
-                    />
+              {auctionState.status === 'completed' ? (
+                <div className="glass-panel max-w-md">
+                  <div className="w-20 h-20 rounded-2xl bg-gold-500/10 flex items-center justify-center mx-auto mb-6">
+                    <Trophy className="w-10 h-10 text-gold-500/50" />
                   </div>
-                ) : (
-                  <>
-                    <h2 className="text-2xl font-bold mb-2 text-white">
-                      {isWheelSpinMode ? 'Waiting for wheel spin' : 'Waiting for auction to start'}
-                    </h2>
-                    <p className="text-dark-400">
-                      {isWheelSpinMode 
-                        ? 'The commissioner will spin the wheel to assign teams' 
-                        : 'The commissioner will begin shortly'
-                      }
-                    </p>
-                    {isWheelSpinMode && (
-                      <div className="mt-4 flex items-center gap-2 text-gold-400">
+                  <h2 className="text-2xl font-bold mb-2 text-white">Auction Complete!</h2>
+                  <p className="text-dark-400">
+                    Total raised: <span className="text-gold-400 font-bold">{formatCurrency(auctionState.totalRaised)}</span>
+                  </p>
+                </div>
+              ) : isWheelSpinMode && wheelSpinTeams.length >= 1 ? (
+                // Show wheel with available teams (works even with 1 team)
+                <div className="w-full max-w-lg mx-auto">
+                  <WheelSpin
+                    teams={wheelSpinTeams}
+                    targetTeamId={targetTeamId}
+                    isSpinning={isSpinning}
+                    assignedUserName={assignedUserName}
+                    onSpinComplete={handleWheelSpinComplete}
+                  />
+                  {!isSpinning && (
+                    <div className="mt-6 text-center">
+                      <p className="text-dark-400 mb-2">
+                        {wheelSpinTeams.length} {wheelSpinTeams.length === 1 ? 'team' : 'teams'} remaining
+                      </p>
+                      <div className="flex items-center justify-center gap-2 text-gold-400">
                         <Sparkles className="w-5 h-5" />
                         <span className="text-sm font-medium">Wheel Spin Mode</span>
                       </div>
-                    )}
-                  </>
-                )}
-              </div>
+                      {isCommissioner && wheelSpinTeams.length >= 1 && (
+                        <p className="mt-2 text-sm text-dark-500">
+                          Click "Spin Wheel" below to select the next team
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : isWheelSpinMode && wheelTeamsLoading ? (
+                <div className="glass-panel max-w-md">
+                  <div className="w-20 h-20 rounded-2xl bg-white/5 flex items-center justify-center mx-auto mb-6">
+                    <Loader2 className="w-10 h-10 text-primary-400 animate-spin" />
+                  </div>
+                  <h2 className="text-2xl font-bold mb-2 text-white">Loading Teams</h2>
+                  <p className="text-dark-400">Preparing wheel spin...</p>
+                </div>
+              ) : isWheelSpinMode && wheelSpinTeams.length === 0 ? (
+                <div className="glass-panel max-w-md">
+                  <div className="w-20 h-20 rounded-2xl bg-gold-500/10 flex items-center justify-center mx-auto mb-6">
+                    <Trophy className="w-10 h-10 text-gold-500/50" />
+                  </div>
+                  <h2 className="text-2xl font-bold mb-2 text-white">
+                    {auctionState.status === 'not_started' ? 'Waiting for Wheel Spin' : 'All Teams Assigned!'}
+                  </h2>
+                  <p className="text-dark-400">
+                    {auctionState.status === 'not_started' 
+                      ? 'The commissioner will initialize the wheel spin to begin' 
+                      : 'All teams have been auctioned off'
+                    }
+                  </p>
+                  <div className="mt-4 flex items-center justify-center gap-2 text-gold-400">
+                    <Sparkles className="w-5 h-5" />
+                    <span className="text-sm font-medium">Wheel Spin Mode</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="glass-panel max-w-md">
+                  <div className="w-20 h-20 rounded-2xl bg-gold-500/10 flex items-center justify-center mx-auto mb-6">
+                    <Trophy className="w-10 h-10 text-gold-500/50" />
+                  </div>
+                  <h2 className="text-2xl font-bold mb-2 text-white">
+                    Waiting for auction to start
+                  </h2>
+                  <p className="text-dark-400">
+                    The commissioner will begin shortly
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
@@ -622,13 +596,13 @@ export default function DraftRoomPage() {
                   Initialize Wheel Spin
                 </button>
               )}
-              {auctionState.status === 'in_progress' && isWheelSpinMode && !currentItem && !isSpinning && (
+              {isWheelSpinMode && !currentItem && !isSpinning && wheelSpinTeams.length > 0 && (
                 <button
                   onClick={() => handleCommissionerAction('wheel-spin')}
                   className="glass-btn-gold"
                 >
                   <RotateCw className="w-4 h-4" />
-                  Spin Wheel
+                  Spin Wheel ({wheelSpinTeams.length} teams)
                 </button>
               )}
               {auctionState.status === 'in_progress' && currentItem && (

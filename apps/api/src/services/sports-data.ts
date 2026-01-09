@@ -1,12 +1,13 @@
-import { prisma, GameStatus } from '@cutta/db';
+import { prisma, GameStatus, Sport } from '@cutta/db';
 import { Server } from 'socket.io';
 import { processPayout } from './payments.js';
+import { syncNFLPlayoffScores, fetchNFLScoreboard, processESPNGame } from './espn-api.js';
 
-// This would integrate with a real sports data API like ESPN, SportsRadar, etc.
-// For MVP, we'll implement the interface and provide mock/manual functionality
-
+// This integrates with ESPN API (free) for NFL and SportsData.io for other sports
 const SPORTS_API_BASE = process.env.SPORTS_DATA_API_URL || 'https://api.sportsdata.io';
 const SPORTS_API_KEY = process.env.SPORTS_DATA_API_KEY;
+const ESPN_POLL_INTERVAL = parseInt(process.env.ESPN_POLL_INTERVAL || '30000', 10);
+const ENABLE_LIVE_SCORES = process.env.ENABLE_LIVE_SCORES !== 'false';
 
 interface GameUpdate {
   externalId: string;
@@ -131,7 +132,7 @@ export async function processGameUpdate(
     }
 
     // Process payouts based on round
-    await processRoundPayouts(game.tournamentId, game.round, winnerId!, io);
+    await processRoundPayouts(game.tournamentId, game.round, winnerId!, io, game.tournament.sport as Sport);
   }
 }
 
@@ -142,7 +143,8 @@ async function processRoundPayouts(
   tournamentId: string,
   round: number,
   winnerId: string,
-  io: Server
+  io: Server,
+  sport?: Sport
 ): Promise<void> {
   // Get all pools for this tournament
   const pools = await prisma.pool.findMany({
@@ -163,7 +165,7 @@ async function processRoundPayouts(
 
   for (const pool of pools) {
     // Get applicable payout rules for this round
-    const payoutTrigger = getRoundPayoutTrigger(round);
+    const payoutTrigger = getRoundPayoutTrigger(round, sport);
     const rules = pool.payoutRules.filter((r) => r.trigger === payoutTrigger);
 
     if (rules.length === 0) continue;
@@ -187,7 +189,7 @@ async function processRoundPayouts(
             pool.id,
             ownership.userId,
             ownerPayout,
-            `${rule.name} - Team advanced to ${getRoundName(round + 1)}`,
+            `${rule.name} - Team advanced to ${getRoundName(round + 1, sport)}`,
             io
           );
         }
@@ -197,9 +199,21 @@ async function processRoundPayouts(
 }
 
 /**
- * Get payout trigger for a round
+ * Get payout trigger for a round (handles both March Madness and NFL)
  */
-function getRoundPayoutTrigger(round: number): string {
+function getRoundPayoutTrigger(round: number, sport?: Sport): string {
+  // NFL Playoffs
+  if (sport === Sport.NFL) {
+    const nflTriggers: Record<number, string> = {
+      1: 'WILD_CARD_WIN',
+      2: 'DIVISIONAL_ROUND',
+      3: 'CONFERENCE_CHAMPIONSHIP',
+      4: 'SUPER_BOWL_WIN',
+    };
+    return nflTriggers[round] || 'CUSTOM';
+  }
+  
+  // March Madness (default)
   const triggers: Record<number, string> = {
     1: 'ROUND_OF_64',
     2: 'ROUND_OF_32',
@@ -212,9 +226,21 @@ function getRoundPayoutTrigger(round: number): string {
 }
 
 /**
- * Get round name
+ * Get round name (handles both March Madness and NFL)
  */
-function getRoundName(round: number): string {
+function getRoundName(round: number, sport?: Sport): string {
+  // NFL Playoffs
+  if (sport === Sport.NFL) {
+    const nflNames: Record<number, string> = {
+      1: 'Wild Card',
+      2: 'Divisional Round',
+      3: 'Conference Championship',
+      4: 'Super Bowl',
+    };
+    return nflNames[round] || `Round ${round}`;
+  }
+  
+  // March Madness (default)
   const names: Record<number, string> = {
     0: 'First Four',
     1: 'Round of 64',
@@ -229,9 +255,18 @@ function getRoundName(round: number): string {
 }
 
 /**
- * Start polling for live game updates
+ * Start polling for live game updates (supports both ESPN for NFL and SportsData.io for others)
  */
-export function startGamePolling(io: Server, intervalMs = 30000): NodeJS.Timeout {
+export function startGamePolling(io: Server, intervalMs?: number): NodeJS.Timeout {
+  const pollInterval = intervalMs || ESPN_POLL_INTERVAL;
+  
+  if (!ENABLE_LIVE_SCORES) {
+    console.log('Live scores polling disabled');
+    return setInterval(() => {}, pollInterval);
+  }
+  
+  console.log(`Starting game polling with ${pollInterval}ms interval`);
+  
   return setInterval(async () => {
     try {
       // Get active tournaments
@@ -240,7 +275,41 @@ export function startGamePolling(io: Server, intervalMs = 30000): NodeJS.Timeout
       });
 
       for (const tournament of tournaments) {
-        if (tournament.externalId) {
+        // Use ESPN for NFL tournaments
+        if (tournament.sport === Sport.NFL) {
+          console.log(`Polling ESPN for NFL tournament: ${tournament.name}`);
+          const result = await syncNFLPlayoffScores();
+          
+          if (result.updated > 0) {
+            console.log(`ESPN sync: ${result.updated} games updated`);
+            
+            // Check for completed games and process payouts
+            const completedGames = await prisma.game.findMany({
+              where: {
+                tournamentId: tournament.id,
+                status: 'FINAL',
+                winnerId: { not: null },
+              },
+              include: {
+                tournament: true,
+              },
+            });
+            
+            for (const game of completedGames) {
+              // Check if payout was already processed
+              const existingPayout = await prisma.payoutLog.findFirst({
+                where: {
+                  gameId: game.id,
+                },
+              });
+              
+              if (!existingPayout && game.winnerId) {
+                await processRoundPayoutsForGame(game, io);
+              }
+            }
+          }
+        } else if (tournament.externalId) {
+          // Use SportsData.io for other sports
           const updates = await fetchLiveGames(tournament.externalId);
           for (const update of updates) {
             await processGameUpdate(update, io);
@@ -250,7 +319,39 @@ export function startGamePolling(io: Server, intervalMs = 30000): NodeJS.Timeout
     } catch (error) {
       console.error('Error polling games:', error);
     }
-  }, intervalMs);
+  }, pollInterval);
+}
+
+/**
+ * Process payouts for a specific completed game
+ */
+export async function processRoundPayoutsForGame(
+  game: {
+    id: string;
+    tournamentId: string;
+    round: number;
+    winnerId: string | null;
+    tournament: { sport: Sport | string };
+  },
+  io: Server
+): Promise<void> {
+  if (!game.winnerId) return;
+  
+  await processRoundPayouts(
+    game.tournamentId,
+    game.round,
+    game.winnerId,
+    io,
+    game.tournament.sport as Sport
+  );
+  
+  // Log that payout was processed
+  await prisma.payoutLog.create({
+    data: {
+      gameId: game.id,
+      processedAt: new Date(),
+    },
+  });
 }
 
 /**

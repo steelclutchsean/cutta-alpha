@@ -1,21 +1,15 @@
-version: '3.8'
-
 services:
   livekit:
     image: livekit/livekit-server:latest
     container_name: cutta-livekit
     restart: unless-stopped
     ports:
-      - "7880:7880"      # HTTP API & WebSocket
-      - "7881:7881"      # WebRTC (TCP)
-      - "7882:7882/udp"  # WebRTC (UDP)
-    environment:
-      - LIVEKIT_KEYS=devkey: secret
-    command: --dev --bind 0.0.0.0
-    networks:
-      - cutta-network
-
-networks:
-  cutta-network:
-    driver: bridge
+      - "7880:7880"          # HTTP API & WebSocket
+      - "7881:7881"          # WebRTC TCP
+      - "7881:7881/udp"      # WebRTC UDP
+      - "7882-7892:7882-7892/udp"  # WebRTC UDP range
+    volumes:
+      - ./livekit.yaml:/livekit.yaml
+    # For macOS Docker Desktop, 127.0.0.1 works for local dev
+    command: --config /livekit.yaml --bind 0.0.0.0
 

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Camera, User, Phone, Save, Loader2 } from 'lucide-react';
+import { X, Camera, User, Save, Loader2 } from 'lucide-react';
 import { AvatarPicker } from './AvatarPicker';
 import { usersApi } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
@@ -16,7 +16,6 @@ interface EditProfileModalProps {
     avatarUrl: string | null;
     avatarType: 'CUSTOM' | 'PRESET' | 'CLERK';
     presetAvatarId: string | null;
-    phone: string | null;
   };
 }
 
@@ -35,7 +34,6 @@ export function EditProfileModal({
     avatarUrl: initialData.avatarUrl,
     avatarType: initialData.avatarType,
     presetAvatarId: initialData.presetAvatarId,
-    phone: initialData.phone || '',
   });
 
   // Reset form when modal opens with new data
@@ -46,7 +44,6 @@ export function EditProfileModal({
         avatarUrl: initialData.avatarUrl,
         avatarType: initialData.avatarType,
         presetAvatarId: initialData.presetAvatarId,
-        phone: initialData.phone || '',
       });
       setError(null);
     }
@@ -70,25 +67,6 @@ export function EditProfileModal({
     }));
   };
 
-  const formatPhoneNumber = (value: string) => {
-    // Remove all non-digits
-    const digits = value.replace(/\D/g, '');
-    
-    // Format as (XXX) XXX-XXXX for US numbers
-    if (digits.length <= 3) {
-      return digits;
-    } else if (digits.length <= 6) {
-      return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
-    } else {
-      return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`;
-    }
-  };
-
-  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const formatted = formatPhoneNumber(e.target.value);
-    setFormData((prev) => ({ ...prev, phone: formatted }));
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token) return;
@@ -97,13 +75,9 @@ export function EditProfileModal({
     setError(null);
 
     try {
-      // Clean phone number for API
-      const cleanPhone = formData.phone.replace(/\D/g, '');
-      
       const updateData: any = {
         displayName: formData.displayName,
         avatarType: formData.avatarType,
-        phone: cleanPhone || null,
       };
 
       if (formData.avatarType === 'PRESET') {
@@ -220,28 +194,6 @@ export function EditProfileModal({
                   placeholder="Your display name"
                 />
               </div>
-            </div>
-
-            {/* Phone Number */}
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-dark-200">
-                Phone Number
-                <span className="text-dark-400 font-normal ml-1">(optional)</span>
-              </label>
-              <div className="relative">
-                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-dark-400" />
-                <input
-                  type="tel"
-                  value={formData.phone}
-                  onChange={handlePhoneChange}
-                  className="glass-input pl-10"
-                  placeholder="(555) 123-4567"
-                  maxLength={14}
-                />
-              </div>
-              <p className="text-xs text-dark-400">
-                Used for important account notifications
-              </p>
             </div>
 
             {/* Submit Button */}

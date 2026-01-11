@@ -67,7 +67,7 @@ const TRIGGER_OPTIONS: { value: PayoutTrigger; label: string; description: strin
   { value: 'CUSTOM', label: 'Custom', description: 'Custom payout rule' },
 ];
 
-type SettingsTab = 'general' | 'payouts' | 'streaming';
+type SettingsTab = 'general' | 'payouts' | 'streaming' | 'danger';
 
 export default function PoolSettingsPage() {
   const params = useParams();
@@ -86,6 +86,12 @@ export default function PoolSettingsPage() {
   const [secondaryMarketEnabled, setSecondaryMarketEnabled] = useState(true);
   const [streamEnabled, setStreamEnabled] = useState(false);
   const [isTogglingStream, setIsTogglingStream] = useState(false);
+  
+  // Delete pool state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deletionReason, setDeletionReason] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     if (pool?.payoutRules) {
@@ -233,6 +239,30 @@ export default function PoolSettingsPage() {
     }
   };
 
+  const handleDeletePool = async () => {
+    if (deleteConfirmText !== pool?.name) {
+      toast.error('Please type the pool name correctly to confirm');
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      const token = await getValidToken();
+      if (!token) {
+        toast.error('Please sign in again');
+        return;
+      }
+      
+      await poolsApi.delete(token, poolId, deletionReason || undefined);
+      toast.success('Pool deleted successfully. It has been archived to your profile history.');
+      router.push('/pools');
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to delete pool');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   if (!pool) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -312,13 +342,21 @@ export default function PoolSettingsPage() {
             { key: 'general' as SettingsTab, label: 'General', icon: Users },
             { key: 'payouts' as SettingsTab, label: 'Payouts', icon: DollarSign },
             { key: 'streaming' as SettingsTab, label: 'Streaming', icon: Video },
+            { key: 'danger' as SettingsTab, label: 'Danger Zone', icon: AlertCircle, danger: true },
           ].map((tab) => {
             const Icon = tab.icon;
+            const isDanger = 'danger' in tab && tab.danger;
             return (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
-                className={`glass-tab ${activeTab === tab.key ? 'active' : ''} flex items-center gap-2 whitespace-nowrap`}
+                className={`glass-tab ${activeTab === tab.key ? 'active' : ''} ${
+                  isDanger && activeTab === tab.key 
+                    ? '!bg-red-500/20 !border-red-500/30 !text-red-400' 
+                    : isDanger 
+                    ? 'text-red-400/70 hover:text-red-400' 
+                    : ''
+                } flex items-center gap-2 whitespace-nowrap`}
               >
                 <Icon className="w-4 h-4" />
                 {tab.label}
@@ -767,6 +805,158 @@ export default function PoolSettingsPage() {
                   </div>
                 )}
               </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Danger Zone Tab */}
+        {activeTab === 'danger' && (
+          <motion.div
+            key="danger"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="space-y-6"
+          >
+            <div className="glass-panel border border-red-500/20">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-12 h-12 rounded-xl bg-red-500/20 flex items-center justify-center">
+                  <AlertCircle className="w-6 h-6 text-red-400" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-red-400">Danger Zone</h2>
+                  <p className="text-sm text-dark-400">Irreversible actions for this pool</p>
+                </div>
+              </div>
+
+              <div className="glass-card border border-red-500/10">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-white mb-1">Delete Pool</h3>
+                    <p className="text-sm text-dark-400 mb-3">
+                      Permanently delete this pool and all associated data. This action cannot be undone,
+                      but a record will be kept in your profile history.
+                    </p>
+                    <ul className="text-xs text-dark-500 space-y-1">
+                      <li className="flex items-center gap-2">
+                        <span className="w-1 h-1 rounded-full bg-red-500" />
+                        All pool members will be removed
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <span className="w-1 h-1 rounded-full bg-red-500" />
+                        All auction items and bids will be deleted
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <span className="w-1 h-1 rounded-full bg-red-500" />
+                        Chat history will be permanently removed
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <span className="w-1 h-1 rounded-full bg-dark-500" />
+                        A private record will be saved to your profile
+                      </li>
+                    </ul>
+                  </div>
+                  <button
+                    onClick={() => setShowDeleteConfirm(true)}
+                    className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all flex items-center gap-2 shrink-0"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Delete Pool
+                  </button>
+                </div>
+              </div>
+
+              {/* Delete Confirmation Modal */}
+              <AnimatePresence>
+                {showDeleteConfirm && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-dark-900/80 backdrop-blur-sm"
+                    onClick={() => !isDeleting && setShowDeleteConfirm(false)}
+                  >
+                    <motion.div
+                      initial={{ scale: 0.95, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      exit={{ scale: 0.95, opacity: 0 }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-full max-w-md glass-panel border border-red-500/30"
+                    >
+                      <div className="flex items-center gap-3 mb-6">
+                        <div className="w-12 h-12 rounded-xl bg-red-500/20 flex items-center justify-center">
+                          <Trash2 className="w-6 h-6 text-red-400" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-bold text-white">Delete Pool</h3>
+                          <p className="text-sm text-dark-400">This action cannot be undone</p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div>
+                          <p className="text-sm text-dark-300 mb-4">
+                            To confirm deletion, please type the pool name: <strong className="text-white">{pool?.name}</strong>
+                          </p>
+                          <input
+                            type="text"
+                            value={deleteConfirmText}
+                            onChange={(e) => setDeleteConfirmText(e.target.value)}
+                            placeholder="Type pool name to confirm"
+                            className="glass-input w-full"
+                            disabled={isDeleting}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-xs text-dark-400 mb-2 block">
+                            Reason for deletion (optional)
+                          </label>
+                          <input
+                            type="text"
+                            value={deletionReason}
+                            onChange={(e) => setDeletionReason(e.target.value)}
+                            placeholder="e.g., Tournament cancelled, duplicate pool"
+                            className="glass-input w-full"
+                            disabled={isDeleting}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex gap-3 mt-6">
+                        <button
+                          onClick={() => {
+                            setShowDeleteConfirm(false);
+                            setDeleteConfirmText('');
+                            setDeletionReason('');
+                          }}
+                          disabled={isDeleting}
+                          className="flex-1 glass-btn"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={handleDeletePool}
+                          disabled={deleteConfirmText !== pool?.name || isDeleting}
+                          className="flex-1 px-4 py-2 rounded-lg bg-red-500 text-white font-medium hover:bg-red-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        >
+                          {isDeleting ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Deleting...
+                            </>
+                          ) : (
+                            <>
+                              <Trash2 className="w-4 h-4" />
+                              Delete Forever
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </motion.div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </motion.div>
         )}

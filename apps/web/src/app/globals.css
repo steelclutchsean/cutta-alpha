@@ -288,20 +288,30 @@
 
   .glass-btn-gold {
     @apply glass-btn;
-    background: rgba(var(--accent-gold), 0.15);
-    border-color: rgba(var(--accent-gold), 0.3);
+    background: rgba(var(--accent-gold), 0.2);
+    border: 1.5px solid rgba(var(--accent-gold), 0.5);
     color: rgb(var(--accent-gold));
+    font-weight: 600;
+    box-shadow: 0 2px 12px rgba(var(--accent-gold), 0.15), inset 0 1px 0 rgba(var(--accent-gold), 0.1);
   }
 
   .glass-btn-gold:hover:not(:disabled) {
-    background: rgba(var(--accent-gold), 0.25);
-    border-color: rgba(var(--accent-gold), 0.4);
-    box-shadow: 0 0 24px rgba(var(--accent-gold), 0.2), var(--glass-shadow-lg);
+    background: rgba(var(--accent-gold), 0.3);
+    border-color: rgba(var(--accent-gold), 0.6);
+    box-shadow: 0 4px 24px rgba(var(--accent-gold), 0.25), var(--glass-shadow-lg);
     transform: translateY(-2px);
   }
 
   .glass-btn-gold:active:not(:disabled) {
     transform: translateY(0) scale(0.98);
+  }
+
+  .glass-btn-gold:disabled {
+    @apply cursor-not-allowed;
+    background: rgba(var(--text-tertiary), 0.15);
+    border-color: rgba(var(--text-tertiary), 0.3);
+    color: rgb(var(--text-tertiary));
+    opacity: 0.7;
   }
 
   .glass-btn-danger {
@@ -346,15 +356,16 @@
 
   .btn-solid-gold {
     @apply relative inline-flex items-center justify-center gap-2 rounded-2xl px-6 py-3 font-semibold transition-all duration-300 ease-out;
-    background: linear-gradient(135deg, rgb(var(--accent-gold)) 0%, rgba(var(--accent-gold), 0.9) 100%);
+    background: linear-gradient(135deg, rgb(var(--accent-gold)) 0%, rgb(var(--accent-gold)) 50%, rgba(var(--accent-gold), 0.9) 100%);
     color: #1a1a1e; /* Always dark text on gold for maximum contrast */
-    box-shadow: 0 4px 16px rgba(var(--accent-gold), 0.3), inset 0 1px 0 rgba(255,255,255,0.3);
+    box-shadow: 0 4px 16px rgba(var(--accent-gold), 0.4), 0 0 0 1px rgba(var(--accent-gold), 0.5), inset 0 1px 0 rgba(255,255,255,0.3);
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.2);
   }
 
   .btn-solid-gold:hover:not(:disabled) {
     transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(var(--accent-gold), 0.5), inset 0 1px 0 rgba(255,255,255,0.4);
-    filter: brightness(1.05);
+    box-shadow: 0 8px 24px rgba(var(--accent-gold), 0.6), 0 0 0 1px rgba(var(--accent-gold), 0.6), inset 0 1px 0 rgba(255,255,255,0.4);
+    filter: brightness(1.1);
   }
 
   .btn-solid-gold:active:not(:disabled) {
@@ -362,7 +373,11 @@
   }
 
   .btn-solid-gold:disabled {
-    @apply opacity-50 cursor-not-allowed;
+    @apply cursor-not-allowed;
+    background: linear-gradient(135deg, rgb(var(--text-tertiary)) 0%, rgb(var(--text-quaternary)) 100%);
+    color: rgb(var(--text-primary));
+    opacity: 0.6;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255,255,255,0.1);
   }
 
   /* Glass Input */

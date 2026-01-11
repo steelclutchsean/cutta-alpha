@@ -174,6 +174,10 @@ export function useUserOwnerships(poolId?: string) {
   );
 }
 
+export function useDeletedPools() {
+  return useAuthenticatedSWR('deleted-pools', usersApi.getDeletedPools);
+}
+
 // Debounce hook
 export function useDebounce<T>(value: T, delay: number): T {
   const [debouncedValue, setDebouncedValue] = useState(value);

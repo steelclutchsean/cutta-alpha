@@ -18,16 +18,19 @@ import {
   CheckCircle,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
-import { useUserProfile, useUserBalance, useUserOwnerships } from '@/lib/hooks';
+import { useUserProfile, useUserBalance, useUserOwnerships, useDeletedPools } from '@/lib/hooks';
 import { EditProfileModal } from '@/components/EditProfileModal';
 import { formatCurrency, formatRelativeTime } from '@cutta/shared';
+import { Trash2, Archive, Eye, EyeOff } from 'lucide-react';
 
 export default function ProfilePage() {
   const { user } = useAuth();
   const { data: profile, isLoading: profileLoading } = useUserProfile();
   const { data: balanceData } = useUserBalance();
   const { data: ownerships } = useUserOwnerships();
+  const { data: deletedPools } = useDeletedPools();
   const [showEditProfile, setShowEditProfile] = useState(false);
+  const [showDeletedPools, setShowDeletedPools] = useState(false);
 
   const getAvatarUrl = () => {
     if (profile?.avatarType === 'PRESET' && profile?.presetAvatarId) {
@@ -322,6 +325,103 @@ export default function ProfilePage() {
         </motion.div>
       )}
 
+      {/* Deleted Pools History (Private) */}
+      {deletedPools && deletedPools.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
+          className="glass-panel"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <Archive className="w-5 h-5 text-dark-400" />
+              Deleted Pools History
+              <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-dark-600 text-dark-300">
+                Private
+              </span>
+            </h2>
+            <button
+              onClick={() => setShowDeletedPools(!showDeletedPools)}
+              className="text-sm text-dark-400 hover:text-dark-300 flex items-center gap-1"
+            >
+              {showDeletedPools ? (
+                <>
+                  <EyeOff className="w-4 h-4" />
+                  Hide
+                </>
+              ) : (
+                <>
+                  <Eye className="w-4 h-4" />
+                  Show ({deletedPools.length})
+                </>
+              )}
+            </button>
+          </div>
+
+          {showDeletedPools && (
+            <div className="space-y-3">
+              {deletedPools.map((pool: any) => (
+                <div
+                  key={pool.id}
+                  className="p-4 rounded-lg bg-dark-700/50 border border-dark-600/50"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="font-medium truncate">{pool.name}</p>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                          pool.deletedStatus === 'DRAFT' 
+                            ? 'bg-dark-600 text-dark-300'
+                            : pool.deletedStatus === 'LIVE' || pool.deletedStatus === 'IN_PROGRESS'
+                            ? 'bg-primary-500/20 text-primary-400'
+                            : pool.deletedStatus === 'COMPLETED'
+                            ? 'bg-green-500/20 text-green-400'
+                            : 'bg-dark-600 text-dark-300'
+                        }`}>
+                          {pool.deletedStatus}
+                        </span>
+                      </div>
+                      <p className="text-sm text-dark-400 mb-2">
+                        {pool.tournamentName} {pool.tournamentYear}
+                      </p>
+                      <div className="flex flex-wrap gap-4 text-xs text-dark-400">
+                        <span className="flex items-center gap-1">
+                          <Users className="w-3 h-3" />
+                          {pool.memberCount} members
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <DollarSign className="w-3 h-3" />
+                          {formatCurrency(Number(pool.buyIn))} buy-in
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Trophy className="w-3 h-3" />
+                          {formatCurrency(Number(pool.totalPot))} pot
+                        </span>
+                      </div>
+                      {pool.deletionReason && (
+                        <p className="mt-2 text-xs text-dark-500 italic">
+                          Reason: {pool.deletionReason}
+                        </p>
+                      )}
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="flex items-center gap-1 text-xs text-red-400/70 mb-1">
+                        <Trash2 className="w-3 h-3" />
+                        Deleted
+                      </div>
+                      <p className="text-xs text-dark-500">
+                        {formatRelativeTime(new Date(pool.deletedAt))}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </motion.div>
+      )}
+
       {/* Edit Profile Modal */}
       {profile && (
         <EditProfileModal
@@ -332,7 +432,6 @@ export default function ProfilePage() {
             avatarUrl: profile.avatarUrl,
             avatarType: profile.avatarType || 'CUSTOM',
             presetAvatarId: profile.presetAvatarId,
-            phone: profile.phone,
           }}
         />
       )}

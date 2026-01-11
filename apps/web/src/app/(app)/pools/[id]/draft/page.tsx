@@ -20,6 +20,7 @@ import {
   RotateCw,
   FileText,
   Radio,
+  ArrowLeft,
 } from 'lucide-react';
 import { usePool, useAuctionState } from '@/lib/hooks';
 import { useAuth } from '@/lib/auth-context';
@@ -288,11 +289,20 @@ export default function DraftRoomPage() {
       <div className="flex-1 flex flex-col overflow-hidden relative">
         {/* Top Bar - Glass Navbar */}
         <header className="glass-navbar flex items-center justify-between px-4 py-3 relative z-10">
-          <div>
-            <h1 className="font-bold text-white">{pool.name}</h1>
-            <p className="text-sm text-dark-400">
-              {auctionState.completedItems.length} / {(auctionState.completedItems.length + (auctionState.nextItems.length || 0) + (currentItem ? 1 : 0))} teams sold
-            </p>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="glass-btn p-2 hover:bg-white/10 transition-colors"
+              title="Back to Dashboard"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div>
+              <h1 className="font-bold text-white">{pool.name}</h1>
+              <p className="text-sm text-dark-400">
+                {auctionState.completedItems.length} / {(auctionState.completedItems.length + (auctionState.nextItems.length || 0) + (currentItem ? 1 : 0))} teams sold
+              </p>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <div className="glass-badge-gold">

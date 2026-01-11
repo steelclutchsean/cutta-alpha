@@ -711,6 +711,20 @@ usersRouter.get('/ownerships', async (req, res, next) => {
   }
 });
 
+// Get deleted pools history (private, commissioner only)
+usersRouter.get('/deleted-pools', async (req, res, next) => {
+  try {
+    const deletedPools = await prisma.deletedPool.findMany({
+      where: { commissionerId: req.user!.id },
+      orderBy: { deletedAt: 'desc' },
+    });
+
+    res.json(deletedPools);
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Request withdrawal
 usersRouter.post('/withdraw', validate(withdrawSchema), async (req, res, next) => {
   try {

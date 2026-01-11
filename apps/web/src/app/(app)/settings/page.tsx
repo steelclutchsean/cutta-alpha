@@ -12,13 +12,15 @@ import {
   LogOut,
   ChevronRight,
   Edit2,
-  Phone,
   Mail,
   Trash2,
   Plus,
   ExternalLink,
   CheckCircle,
   AlertCircle,
+  Smartphone,
+  ShieldCheck,
+  ShieldAlert,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { useUserProfile, usePaymentMethods } from '@/lib/hooks';
@@ -41,14 +43,8 @@ export default function SettingsPage() {
     return profile?.avatarUrl || user?.avatarUrl;
   };
 
-  const formatPhone = (phone: string | null) => {
-    if (!phone) return 'Not set';
-    const digits = phone.replace(/\D/g, '');
-    if (digits.length === 10) {
-      return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
-    }
-    return phone;
-  };
+  // Check if 2FA is enabled via Clerk
+  const twoFactorEnabled = clerkUser?.twoFactorEnabled ?? false;
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -151,7 +147,7 @@ export default function SettingsPage() {
         </h3>
         
         <div className="space-y-4">
-          <div className="flex items-center justify-between py-3 border-b border-white/5">
+          <div className="flex items-center justify-between py-3">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-lg bg-dark-600 flex items-center justify-center">
                 <Mail className="w-5 h-5 text-dark-300" />
@@ -168,26 +164,6 @@ export default function SettingsPage() {
               Manage via Clerk
               <ExternalLink className="w-3 h-3" />
             </Link>
-          </div>
-
-          <div className="flex items-center justify-between py-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-dark-600 flex items-center justify-center">
-                <Phone className="w-5 h-5 text-dark-300" />
-              </div>
-              <div>
-                <p className="text-sm text-dark-400">Phone</p>
-                <p className={`font-medium ${!profile?.phone ? 'text-dark-400' : ''}`}>
-                  {formatPhone(profile?.phone)}
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => setShowEditProfile(true)}
-              className="text-sm text-primary-400 hover:text-primary-300"
-            >
-              {profile?.phone ? 'Edit' : 'Add'}
-            </button>
           </div>
         </div>
       </motion.div>
@@ -304,15 +280,58 @@ export default function SettingsPage() {
         </h3>
 
         <div className="space-y-3">
+          {/* Two-Factor Authentication */}
           <Link
             href={clerkUser ? '/user/security' : '#'}
             className="flex items-center justify-between p-3 rounded-lg bg-dark-700/50 hover:bg-dark-700 transition-colors"
           >
             <div className="flex items-center gap-3">
-              <Lock className="w-5 h-5 text-dark-400" />
+              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                twoFactorEnabled ? 'bg-green-500/20' : 'bg-dark-600'
+              }`}>
+                {twoFactorEnabled ? (
+                  <ShieldCheck className="w-5 h-5 text-green-400" />
+                ) : (
+                  <Smartphone className="w-5 h-5 text-dark-400" />
+                )}
+              </div>
               <div>
-                <p className="font-medium">Password & Authentication</p>
-                <p className="text-sm text-dark-400">Manage via Clerk</p>
+                <div className="flex items-center gap-2">
+                  <p className="font-medium">Two-Factor Authentication</p>
+                  {twoFactorEnabled ? (
+                    <span className="glass-badge-success text-xs">
+                      <CheckCircle className="w-3 h-3" />
+                      Enabled
+                    </span>
+                  ) : (
+                    <span className="glass-badge text-xs text-yellow-400">
+                      <ShieldAlert className="w-3 h-3" />
+                      Not enabled
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-dark-400">
+                  {twoFactorEnabled 
+                    ? 'Your account is protected with 2FA' 
+                    : 'Add extra security with authenticator app or SMS'}
+                </p>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-dark-400" />
+          </Link>
+
+          {/* Password Management */}
+          <Link
+            href={clerkUser ? '/user/security' : '#'}
+            className="flex items-center justify-between p-3 rounded-lg bg-dark-700/50 hover:bg-dark-700 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-dark-600 flex items-center justify-center">
+                <Lock className="w-5 h-5 text-dark-400" />
+              </div>
+              <div>
+                <p className="font-medium">Password</p>
+                <p className="text-sm text-dark-400">Change your password</p>
               </div>
             </div>
             <ChevronRight className="w-5 h-5 text-dark-400" />
@@ -350,7 +369,6 @@ export default function SettingsPage() {
             avatarUrl: profile.avatarUrl,
             avatarType: profile.avatarType || 'CUSTOM',
             presetAvatarId: profile.presetAvatarId,
-            phone: profile.phone,
           }}
         />
       )}

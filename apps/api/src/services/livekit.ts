@@ -44,7 +44,7 @@ export async function createDraftRoom(poolId: string): Promise<string> {
   try {
     await roomService.createRoom({
       name: roomName,
-      emptyTimeout: 60 * 60 * 6, // 6 hours
+      emptyTimeout: 0, // Never timeout - connection ends only when user disconnects
       maxParticipants: 500,
     });
   } catch (error) {

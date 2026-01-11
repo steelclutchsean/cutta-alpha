@@ -582,6 +582,69 @@ poolsRouter.post('/:id/open', async (req, res, next) => {
   }
 });
 
+// Delete pool (commissioner only) - archives to deleted pools history
+poolsRouter.delete('/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body || {};
+
+    // Get pool with all related data
+    const pool = await prisma.pool.findUnique({
+      where: { id },
+      include: {
+        tournament: {
+          select: { name: true, year: true },
+        },
+        _count: {
+          select: { members: true },
+        },
+      },
+    });
+
+    if (!pool) {
+      throw new AppError(404, 'Pool not found', 'NOT_FOUND');
+    }
+
+    if (pool.commissionerId !== req.user!.id) {
+      throw new AppError(403, 'Only the commissioner can delete this pool', 'NOT_COMMISSIONER');
+    }
+
+    // Archive to deleted pools history before deletion
+    await prisma.deletedPool.create({
+      data: {
+        originalPoolId: pool.id,
+        name: pool.name,
+        description: pool.description,
+        commissionerId: pool.commissionerId,
+        deletedStatus: pool.status,
+        buyIn: pool.buyIn,
+        totalPot: pool.totalPot,
+        maxParticipants: pool.maxParticipants,
+        auctionStartTime: pool.auctionStartTime,
+        tournamentId: pool.tournamentId,
+        tournamentName: pool.tournament.name,
+        tournamentYear: pool.tournament.year,
+        memberCount: pool._count.members,
+        auctionMode: pool.auctionMode,
+        isPublic: pool.isPublic,
+        deletionReason: reason || null,
+      },
+    });
+
+    // Delete the pool (cascades to related records due to onDelete: Cascade)
+    await prisma.pool.delete({
+      where: { id },
+    });
+
+    res.json({ 
+      message: 'Pool deleted successfully',
+      deletedPoolId: id,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Get pool standings/leaderboard
 poolsRouter.get('/:id/standings', async (req, res, next) => {
   try {

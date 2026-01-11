@@ -157,6 +157,28 @@ export const usersApi = {
       pagination: { total: number; limit: number; offset: number };
     }>(`/users/transactions${queryString ? `?${queryString}` : ''}`, { token });
   },
+
+  getDeletedPools: (token: string) =>
+    fetchApi<Array<{
+      id: string;
+      originalPoolId: string;
+      name: string;
+      description: string | null;
+      commissionerId: string;
+      deletedStatus: string;
+      buyIn: string;
+      totalPot: string;
+      maxParticipants: number | null;
+      auctionStartTime: string;
+      tournamentId: string;
+      tournamentName: string;
+      tournamentYear: number;
+      memberCount: number;
+      auctionMode: string;
+      isPublic: boolean;
+      deletedAt: string;
+      deletionReason: string | null;
+    }>>('/users/deleted-pools', { token }),
 };
 
 // Pools
@@ -220,6 +242,13 @@ export const poolsApi = {
     fetchApi<any>(`/pools/${id}/payouts`, {
       method: 'PUT',
       body: JSON.stringify({ rules }),
+      token,
+    }),
+
+  delete: (token: string, id: string, reason?: string) =>
+    fetchApi<{ message: string; deletedPoolId: string }>(`/pools/${id}`, {
+      method: 'DELETE',
+      ...(reason ? { body: JSON.stringify({ reason }) } : {}),
       token,
     }),
 };

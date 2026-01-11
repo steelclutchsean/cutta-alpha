@@ -32,6 +32,7 @@ model User {
   paymentMethods    PaymentMethod[]
   poolMemberships   PoolMember[]
   commissionedPools Pool[]           @relation("Commissioner")
+  deletedPools      DeletedPool[]    @relation("DeletedPoolCommissioner")
   bids              Bid[]
   ownerships        Ownership[]
   listings          Listing[]
@@ -496,6 +497,38 @@ model PayoutLog {
   processedAt DateTime @default(now())
   
   @@index([gameId])
+}
+
+// ============================================
+// DELETED POOLS HISTORY (PRIVATE)
+// ============================================
+
+// Tracks deleted pools for commissioner's private history
+model DeletedPool {
+  id               String      @id @default(cuid())
+  originalPoolId   String      // Original pool ID for reference
+  name             String
+  description      String?
+  commissionerId   String
+  deletedStatus    PoolStatus  // Status at time of deletion
+  buyIn            Decimal     @db.Decimal(10, 2)
+  totalPot         Decimal     @default(0) @db.Decimal(12, 2)
+  maxParticipants  Int?
+  auctionStartTime DateTime
+  tournamentId     String
+  tournamentName   String      // Snapshot of tournament name
+  tournamentYear   Int         // Snapshot of tournament year
+  memberCount      Int         @default(0)
+  auctionMode      AuctionMode @default(TRADITIONAL)
+  isPublic         Boolean     @default(false)
+  
+  deletedAt        DateTime    @default(now())
+  deletionReason   String?     // Optional reason for deletion
+
+  commissioner User @relation("DeletedPoolCommissioner", fields: [commissionerId], references: [id])
+
+  @@index([commissionerId])
+  @@index([deletedAt])
 }
 
 // ============================================

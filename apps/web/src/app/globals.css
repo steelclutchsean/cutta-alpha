@@ -76,10 +76,10 @@
     --text-tertiary: 142 142 147;
     --text-quaternary: 99 99 102;
     
-    /* Accent Colors (slightly brighter for dark mode) - Green & Gold brand */
-    --accent-blue: 56 159 107;       /* #389F6B - Brighter sea green for dark */
-    --accent-gold: 222 185 65;       /* #DEB941 - Brighter gold for dark */
-    --accent-green: 56 159 107;      /* #389F6B - Same as primary */
+    /* Accent Colors (much brighter for dark mode visibility) - Green & Gold brand */
+    --accent-blue: 72 187 120;       /* #48BB78 - Bright green for dark mode */
+    --accent-gold: 245 197 60;       /* #F5C53C - Bright gold for dark mode */
+    --accent-green: 72 187 120;      /* #48BB78 - Same as primary */
     --accent-beige: 212 212 184;     /* #D4D4B8 - Muted beige for dark mode */
     --accent-red: 255 69 58;
     
@@ -111,9 +111,9 @@
     
     /* Ambient Background - Green & Gold */
     --ambient-gradient: 
-      radial-gradient(ellipse 80% 50% at 20% 40%, rgba(56, 159, 107, 0.12) 0%, transparent 50%),
-      radial-gradient(ellipse 60% 60% at 80% 60%, rgba(222, 185, 65, 0.08) 0%, transparent 50%),
-      radial-gradient(ellipse 100% 100% at 50% 100%, rgba(56, 159, 107, 0.06) 0%, transparent 50%);
+      radial-gradient(ellipse 80% 50% at 20% 40%, rgba(72, 187, 120, 0.12) 0%, transparent 50%),
+      radial-gradient(ellipse 60% 60% at 80% 60%, rgba(245, 197, 60, 0.08) 0%, transparent 50%),
+      radial-gradient(ellipse 100% 100% at 50% 100%, rgba(72, 187, 120, 0.06) 0%, transparent 50%);
   }
 
   * {
@@ -358,16 +358,18 @@
 
   .btn-solid-gold {
     @apply relative inline-flex items-center justify-center gap-2 rounded-2xl px-6 py-3 font-semibold transition-all duration-300 ease-out;
-    background: linear-gradient(135deg, rgb(var(--accent-gold)) 0%, rgb(var(--accent-gold)) 50%, rgba(var(--accent-gold), 0.9) 100%);
-    color: #1a1a1e; /* Always dark text on gold for maximum contrast */
-    box-shadow: 0 4px 16px rgba(var(--accent-gold), 0.4), 0 0 0 1px rgba(var(--accent-gold), 0.5), inset 0 1px 0 rgba(255,255,255,0.3);
-    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.2);
+    /* Light mode: green outline style */
+    background: transparent;
+    color: rgb(var(--accent-blue));
+    border: 2px solid rgb(var(--accent-blue));
+    box-shadow: 0 2px 8px rgba(var(--accent-blue), 0.15);
+    text-shadow: none;
   }
 
   .btn-solid-gold:hover:not(:disabled) {
     transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(var(--accent-gold), 0.6), 0 0 0 1px rgba(var(--accent-gold), 0.6), inset 0 1px 0 rgba(255,255,255,0.4);
-    filter: brightness(1.1);
+    background: rgba(var(--accent-blue), 0.08);
+    box-shadow: 0 4px 16px rgba(var(--accent-blue), 0.25);
   }
 
   .btn-solid-gold:active:not(:disabled) {
@@ -380,6 +382,22 @@
     color: rgb(var(--text-primary));
     opacity: 0.6;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255,255,255,0.1);
+  }
+
+  /* Dark mode btn-solid-gold - explicit bright gold background */
+  .dark .btn-solid-gold {
+    background: linear-gradient(135deg, #F5C53C 0%, #FFD54F 50%, #F5C53C 100%);
+    color: #1a1a1e;
+    box-shadow: 0 4px 24px rgba(245, 197, 60, 0.6), 
+                0 0 0 1px rgba(245, 197, 60, 0.7), 
+                inset 0 1px 0 rgba(255,255,255,0.4);
+  }
+
+  .dark .btn-solid-gold:hover:not(:disabled) {
+    background: linear-gradient(135deg, #FFD54F 0%, #FFEB3B 50%, #FFD54F 100%);
+    box-shadow: 0 8px 40px rgba(245, 197, 60, 0.8), 
+                0 0 0 1px rgba(255, 213, 79, 0.9), 
+                inset 0 1px 0 rgba(255,255,255,0.5);
   }
 
   /* Glass Input */
@@ -772,6 +790,18 @@
     border-color: var(--glass-border);
   }
 
+  /* Dark mode btn-ghost - make visible with subtle border */
+  .dark .btn-ghost {
+    color: rgb(var(--text-secondary));
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .dark .btn-ghost:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: rgb(var(--text-primary));
+  }
+
   .btn-outline {
     @apply glass-btn;
     background: transparent;
@@ -782,6 +812,18 @@
   .btn-outline:hover:not(:disabled) {
     background: rgba(var(--accent-blue), 0.1);
     border-color: rgb(var(--accent-blue));
+  }
+
+  /* Dark mode btn-outline - add glow for better visibility */
+  .dark .btn-outline {
+    border-color: rgb(var(--accent-blue));
+    color: rgb(var(--accent-blue));
+    box-shadow: 0 0 12px rgba(var(--accent-blue), 0.2);
+  }
+
+  .dark .btn-outline:hover:not(:disabled) {
+    background: rgba(var(--accent-blue), 0.15);
+    box-shadow: 0 0 20px rgba(var(--accent-blue), 0.3);
   }
 
   .input {

@@ -30,3 +30,4 @@ ls -lh $BACKUP_DIR/cutta_*.sql.gz
 
 echo "✅ Backup complete: cutta_$DATE.sql.gz"
 
+

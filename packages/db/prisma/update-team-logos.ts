@@ -1,27 +1,25 @@
-import { PrismaClient } from '@prisma/client';
-import { ALL_TEAM_LOGOS, getTeamLogoUrl } from './team-logos.js';
-
-const prisma = new PrismaClient();
+import { db, eq, teams } from '../src/index.js';
+import { getTeamLogoUrl } from './team-logos.js';
 
 async function main() {
   console.log('🖼️  Updating team logos...');
 
   // Get all teams
-  const teams = await prisma.team.findMany({
-    select: {
+  const allTeams = await db.query.teams.findMany({
+    columns: {
       id: true,
       name: true,
       logoUrl: true,
     },
   });
 
-  console.log(`Found ${teams.length} teams to process`);
+  console.log(`Found ${allTeams.length} teams to process`);
 
   let updated = 0;
   let skipped = 0;
   let notFound = 0;
 
-  for (const team of teams) {
+  for (const team of allTeams) {
     const logoUrl = getTeamLogoUrl(team.name);
 
     if (!logoUrl) {
@@ -35,10 +33,9 @@ async function main() {
       continue;
     }
 
-    await prisma.team.update({
-      where: { id: team.id },
-      data: { logoUrl },
-    });
+    await db.update(teams)
+      .set({ logoUrl })
+      .where(eq(teams.id, team.id));
 
     console.log(`  ✅ Updated: ${team.name}`);
     updated++;
@@ -55,8 +52,4 @@ main()
   .catch((e) => {
     console.error('❌ Failed to update logos:', e);
     process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
   });
-

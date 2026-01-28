@@ -29,7 +29,7 @@ This guide covers deploying Cutta to a Hostinger VPS (or any Ubuntu-based VPS).
 │          └────────────────┼────────────────┘                │
 │                           ▼                                  │
 │                   External Services                          │
-│               (Clerk, Stripe, LiveKit)                       │
+│             (Google OAuth, Stripe, LiveKit)                  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -216,21 +216,25 @@ pm2 start ecosystem.config.js
 pm2 save
 ```
 
-## Clerk Setup
+## Google OAuth Setup
 
-1. Go to [clerk.com](https://clerk.com) and create an account
-2. Create a new application
-3. Enable authentication methods:
-   - Email/Password
-   - Google OAuth
-4. Get your API keys:
-   - `CLERK_PUBLISHABLE_KEY` (pk_live_xxx)
-   - `CLERK_SECRET_KEY` (sk_live_xxx)
-5. Configure redirect URLs in Clerk dashboard:
-   - Sign-in URL: `https://yourdomain.com/login`
-   - Sign-up URL: `https://yourdomain.com/signup`
-   - After sign-in: `https://yourdomain.com/dashboard`
-   - After sign-up: `https://yourdomain.com/dashboard`
+1. Go to [Google Cloud Console](https://console.cloud.google.com)
+2. Create a new project (or select existing)
+3. Navigate to **APIs & Services > Credentials**
+4. Click **Create Credentials > OAuth client ID**
+5. Choose **Web application**
+6. Add Authorized JavaScript origins:
+   - `https://yourdomain.com`
+   - `http://localhost:3000` (for development)
+7. Add Authorized redirect URIs:
+   - `https://api.yourdomain.com/auth/google/callback`
+   - `http://localhost:3001/auth/google/callback` (for development)
+8. Get your credentials:
+   - `GOOGLE_CLIENT_ID`
+   - `GOOGLE_CLIENT_SECRET`
+9. Configure OAuth consent screen (APIs & Services > OAuth consent screen):
+   - Add app name, user support email
+   - Add scopes: email, profile, openid
 
 ## LiveKit Setup (Video Streaming)
 

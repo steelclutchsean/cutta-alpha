@@ -1,4 +1,4 @@
-export type AvatarType = 'CUSTOM' | 'PRESET' | 'CLERK';
+export type AvatarType = 'CUSTOM' | 'PRESET' | 'GOOGLE';
 
 export interface User {
   id: string;

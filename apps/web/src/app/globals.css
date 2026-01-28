@@ -22,10 +22,11 @@
     --text-tertiary: 142 142 147;
     --text-quaternary: 174 174 178;
     
-    /* Accent Colors */
-    --accent-blue: 0 122 255;
-    --accent-gold: 255 179 0;
-    --accent-green: 52 199 89;
+    /* Accent Colors - Green & Gold brand */
+    --accent-blue: 46 139 87;        /* #2E8B57 - Sea Green (primary) */
+    --accent-gold: 212 175 55;       /* #D4AF37 - Rich Gold */
+    --accent-green: 46 139 87;       /* #2E8B57 - Same as primary */
+    --accent-beige: 245 245 220;     /* #F5F5DC - Cream/Beige accent */
     --accent-red: 255 59 48;
     
     /* Liquid Glass Variables - Light */
@@ -54,11 +55,11 @@
     --navbar-bg: rgba(250, 250, 252, 0.8);
     --navbar-border: rgba(0, 0, 0, 0.05);
     
-    /* Ambient Background */
+    /* Ambient Background - Green & Gold */
     --ambient-gradient: 
-      radial-gradient(ellipse 80% 50% at 20% 40%, rgba(0, 122, 255, 0.08) 0%, transparent 50%),
-      radial-gradient(ellipse 60% 60% at 80% 60%, rgba(255, 179, 0, 0.06) 0%, transparent 50%),
-      radial-gradient(ellipse 100% 100% at 50% 100%, rgba(0, 122, 255, 0.04) 0%, transparent 50%);
+      radial-gradient(ellipse 80% 50% at 20% 40%, rgba(46, 139, 87, 0.08) 0%, transparent 50%),
+      radial-gradient(ellipse 60% 60% at 80% 60%, rgba(212, 175, 55, 0.06) 0%, transparent 50%),
+      radial-gradient(ellipse 100% 100% at 50% 100%, rgba(46, 139, 87, 0.04) 0%, transparent 50%);
   }
 
   /* =============================================
@@ -75,10 +76,11 @@
     --text-tertiary: 142 142 147;
     --text-quaternary: 99 99 102;
     
-    /* Accent Colors (slightly brighter for dark mode) */
-    --accent-blue: 32 148 255;
-    --accent-gold: 255 191 0;
-    --accent-green: 48 209 88;
+    /* Accent Colors (slightly brighter for dark mode) - Green & Gold brand */
+    --accent-blue: 56 159 107;       /* #389F6B - Brighter sea green for dark */
+    --accent-gold: 222 185 65;       /* #DEB941 - Brighter gold for dark */
+    --accent-green: 56 159 107;      /* #389F6B - Same as primary */
+    --accent-beige: 212 212 184;     /* #D4D4B8 - Muted beige for dark mode */
     --accent-red: 255 69 58;
     
     /* Liquid Glass Variables - Dark */
@@ -107,11 +109,11 @@
     --navbar-bg: rgba(18, 18, 20, 0.85);
     --navbar-border: rgba(255, 255, 255, 0.05);
     
-    /* Ambient Background */
+    /* Ambient Background - Green & Gold */
     --ambient-gradient: 
-      radial-gradient(ellipse 80% 50% at 20% 40%, rgba(32, 148, 255, 0.12) 0%, transparent 50%),
-      radial-gradient(ellipse 60% 60% at 80% 60%, rgba(255, 191, 0, 0.08) 0%, transparent 50%),
-      radial-gradient(ellipse 100% 100% at 50% 100%, rgba(32, 148, 255, 0.06) 0%, transparent 50%);
+      radial-gradient(ellipse 80% 50% at 20% 40%, rgba(56, 159, 107, 0.12) 0%, transparent 50%),
+      radial-gradient(ellipse 60% 60% at 80% 60%, rgba(222, 185, 65, 0.08) 0%, transparent 50%),
+      radial-gradient(ellipse 100% 100% at 50% 100%, rgba(56, 159, 107, 0.06) 0%, transparent 50%);
   }
 
   * {
@@ -424,7 +426,7 @@
 
   .glass-toggle-thumb {
     @apply absolute top-1 w-6 h-6 rounded-full transition-all duration-300;
-    background: rgb(var(--text-tertiary));
+    background: rgb(var(--accent-green) / 0.6);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
     left: 4px;
   }
@@ -467,6 +469,13 @@
     background: rgba(var(--accent-green), 0.12);
     border-color: rgba(var(--accent-green), 0.25);
     color: rgb(var(--accent-green));
+  }
+
+  .glass-badge-beige {
+    @apply glass-badge;
+    background: rgba(var(--accent-beige), 0.3);
+    border-color: rgba(var(--accent-beige), 0.5);
+    color: rgb(var(--text-secondary));
   }
 
   .glass-badge-live {
@@ -763,6 +772,18 @@
     border-color: var(--glass-border);
   }
 
+  .btn-outline {
+    @apply glass-btn;
+    background: transparent;
+    border: 1.5px solid rgb(var(--accent-blue));
+    color: rgb(var(--accent-blue));
+  }
+
+  .btn-outline:hover:not(:disabled) {
+    background: rgba(var(--accent-blue), 0.1);
+    border-color: rgb(var(--accent-blue));
+  }
+
   .input {
     @apply glass-input;
   }
@@ -781,6 +802,10 @@
 
   .badge-success {
     @apply glass-badge-success;
+  }
+
+  .badge-beige {
+    @apply glass-badge-beige;
   }
 
   .badge-error {

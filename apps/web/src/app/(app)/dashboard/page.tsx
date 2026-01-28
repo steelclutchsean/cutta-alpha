@@ -78,7 +78,7 @@ export default function DashboardPage() {
             <Users className="w-4 h-4" />
             Join Pool
           </Link>
-          <Link href="/pools/create" className="btn-solid-primary">
+          <Link href="/pools/create" className="btn-solid-gold">
             <Plus className="w-4 h-4" />
             Create Pool
           </Link>
@@ -246,7 +246,7 @@ export default function DashboardPage() {
               <Link href="/pools/join" className="glass-btn">
                 Join Pool
               </Link>
-              <Link href="/pools/create" className="btn-solid-primary">
+              <Link href="/pools/create" className="btn-solid-gold">
                 <Plus className="w-4 h-4" />
                 Create Pool
               </Link>
@@ -305,7 +305,7 @@ export default function DashboardPage() {
             </div>
           ) : (
             <div className="p-12 text-center">
-              <Sparkles className="w-10 h-10 text-text-quaternary mx-auto mb-4" />
+              <Sparkles className="w-10 h-10 text-gold-400/40 mx-auto mb-4" />
               <p className="text-text-tertiary">No recent activity</p>
             </div>
           )}
@@ -349,8 +349,8 @@ function StatCard({
       glow: '',
     },
     default: {
-      bg: 'bg-text-tertiary/10',
-      text: 'text-text-tertiary',
+      bg: 'bg-accent-blue/10',
+      text: 'text-accent-blue/70',
       glow: '',
     },
   };

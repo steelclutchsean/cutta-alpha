@@ -81,11 +81,11 @@ export default function AuctionQueueManager({
       {items.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
-            <div className="w-16 h-16 rounded-xl bg-white/5 flex items-center justify-center mx-auto mb-3">
-              <ListOrdered className="w-8 h-8 text-dark-500" />
+            <div className="w-16 h-16 rounded-xl bg-primary-500/10 border border-primary-500/20 flex items-center justify-center mx-auto mb-3">
+              <ListOrdered className="w-8 h-8 text-primary-400/50" />
             </div>
-            <p className="text-dark-400">No teams in queue</p>
-            <p className="text-sm text-dark-500">All teams have been auctioned</p>
+            <p className="text-text-secondary">No teams in queue</p>
+            <p className="text-sm text-text-tertiary">All teams have been auctioned</p>
           </div>
         </div>
       ) : (
@@ -113,7 +113,7 @@ export default function AuctionQueueManager({
                   }`}
                 >
                   {/* Drag Handle */}
-                  <div className="cursor-grab active:cursor-grabbing text-dark-500 hover:text-dark-300">
+                  <div className="cursor-grab active:cursor-grabbing text-primary-400/40 hover:text-primary-400">
                     <GripVertical className="w-5 h-5" />
                   </div>
 
@@ -143,7 +143,7 @@ export default function AuctionQueueManager({
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-dark-500 truncate">
+                    <p className="text-xs text-text-tertiary truncate">
                       {item.team.region || 'Conference'}
                     </p>
                   </div>

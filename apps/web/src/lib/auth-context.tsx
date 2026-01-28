@@ -9,16 +9,16 @@ import {
   useCallback,
   useRef,
 } from 'react';
-import { useUser, useAuth as useClerkAuth } from '@clerk/nextjs';
-import { usersApi } from './api';
+import { useRouter } from 'next/navigation';
+import { authApi, usersApi } from './api';
 
 interface User {
   id: string;
-  clerkId: string;
+  googleId: string | null;
   email: string;
   displayName: string;
   avatarUrl: string | null;
-  avatarType: 'CUSTOM' | 'PRESET' | 'CLERK';
+  avatarType: 'CUSTOM' | 'PRESET' | 'GOOGLE';
   presetAvatarId: string | null;
   phone: string | null;
   balance: number;
@@ -30,107 +30,118 @@ interface AuthContextType {
   token: string | null;
   isLoading: boolean;
   isSignedIn: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  signup: (email: string, password: string, displayName: string) => Promise<void>;
+  loginWithGoogle: () => void;
   logout: () => Promise<void>;
   updateUser: (updates: Partial<User>) => void;
   refreshUser: () => Promise<void>;
   getValidToken: () => Promise<string | null>;
+  setAuthToken: (token: string) => Promise<void>;
 }
+
+const TOKEN_KEY = 'cutta_auth_token';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const { user: clerkUser, isLoaded: clerkLoaded, isSignedIn } = useUser();
-  const { getToken, signOut } = useClerkAuth();
+  const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const tokenRef = useRef<string | null>(null);
 
-  // Get a fresh token - Clerk tokens expire quickly, so always get fresh when needed
+  // Get token from storage
   const getValidToken = useCallback(async (): Promise<string | null> => {
-    if (!isSignedIn) return null;
-    try {
-      const freshToken = await getToken();
-      if (freshToken) {
-        setToken(freshToken);
-        tokenRef.current = freshToken;
-      }
-      return freshToken;
-    } catch (error) {
-      console.error('Failed to get token:', error);
-      return null;
-    }
-  }, [isSignedIn, getToken]);
+    return tokenRef.current;
+  }, []);
 
-  // Sync user with backend when Clerk user changes
+  // Set auth token (called after OAuth callback)
+  const setAuthToken = useCallback(async (newToken: string) => {
+    localStorage.setItem(TOKEN_KEY, newToken);
+    setToken(newToken);
+    tokenRef.current = newToken;
+    
+    // Fetch user data
+    try {
+      const userData = await usersApi.me(newToken);
+      setUser(userData);
+    } catch (error) {
+      console.error('Failed to fetch user:', error);
+      // Token might be invalid, clear it
+      localStorage.removeItem(TOKEN_KEY);
+      setToken(null);
+      tokenRef.current = null;
+    }
+  }, []);
+
+  // Initialize auth state from stored token
   useEffect(() => {
-    async function syncUser() {
-      if (!clerkLoaded) return;
+    async function initAuth() {
+      const storedToken = localStorage.getItem(TOKEN_KEY);
       
-      if (!isSignedIn || !clerkUser) {
-        setUser(null);
-        setToken(null);
-        tokenRef.current = null;
+      if (!storedToken) {
         setIsLoading(false);
         return;
       }
 
-      try {
-        // Get Clerk JWT token
-        const clerkToken = await getToken();
-        setToken(clerkToken);
-        tokenRef.current = clerkToken;
+      setToken(storedToken);
+      tokenRef.current = storedToken;
 
-        if (clerkToken) {
-          // Sync or create user in our database
-          const userData = await usersApi.syncClerkUser(clerkToken, {
-            clerkId: clerkUser.id,
-            email: clerkUser.primaryEmailAddress?.emailAddress || '',
-            displayName: clerkUser.fullName || clerkUser.firstName || 'User',
-            avatarUrl: clerkUser.imageUrl,
-          });
-          setUser(userData);
-        }
+      try {
+        const userData = await usersApi.me(storedToken);
+        setUser(userData);
       } catch (error) {
-        console.error('Failed to sync user:', error);
-        // Still allow access even if sync fails
-        setUser({
-          id: clerkUser.id,
-          clerkId: clerkUser.id,
-          email: clerkUser.primaryEmailAddress?.emailAddress || '',
-          displayName: clerkUser.fullName || clerkUser.firstName || 'User',
-          avatarUrl: clerkUser.imageUrl || null,
-          avatarType: 'CLERK',
-          presetAvatarId: null,
-          phone: null,
-          balance: 0,
-          kycVerified: false,
-        });
+        console.error('Failed to fetch user:', error);
+        // Token is invalid, clear it
+        localStorage.removeItem(TOKEN_KEY);
+        setToken(null);
+        tokenRef.current = null;
       } finally {
         setIsLoading(false);
       }
     }
 
-    syncUser();
-  }, [clerkUser, clerkLoaded, isSignedIn, getToken]);
+    initAuth();
+  }, []);
 
-  // Refresh token periodically to keep it fresh (every 45 seconds)
-  useEffect(() => {
-    if (!isSignedIn) return;
+  // Email/password login
+  const login = useCallback(async (email: string, password: string) => {
+    const { user: userData, token: newToken } = await authApi.login({ email, password });
+    
+    localStorage.setItem(TOKEN_KEY, newToken);
+    setToken(newToken);
+    tokenRef.current = newToken;
+    setUser(userData);
+    
+    router.push('/dashboard');
+  }, [router]);
 
-    const refreshInterval = setInterval(async () => {
-      await getValidToken();
-    }, 45000); // Refresh every 45 seconds
+  // Email/password signup
+  const signup = useCallback(async (email: string, password: string, displayName: string) => {
+    const { user: userData, token: newToken } = await authApi.signup({ email, password, displayName });
+    
+    localStorage.setItem(TOKEN_KEY, newToken);
+    setToken(newToken);
+    tokenRef.current = newToken;
+    setUser(userData);
+    
+    router.push('/dashboard');
+  }, [router]);
 
-    return () => clearInterval(refreshInterval);
-  }, [isSignedIn, getValidToken]);
+  // Google OAuth login - redirect to API
+  const loginWithGoogle = useCallback(() => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+    window.location.href = `${apiUrl}/auth/google`;
+  }, []);
 
   const logout = useCallback(async () => {
-    await signOut();
+    localStorage.removeItem(TOKEN_KEY);
     setUser(null);
     setToken(null);
     tokenRef.current = null;
-  }, [signOut]);
+    router.push('/login');
+  }, [router]);
 
   const updateUser = useCallback((updates: Partial<User>) => {
     setUser((prev) => {
@@ -140,7 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refreshUser = useCallback(async () => {
-    const validToken = await getValidToken();
+    const validToken = tokenRef.current;
     if (!validToken) return;
     try {
       const userData = await usersApi.me(validToken);
@@ -148,19 +159,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error('Failed to refresh user:', error);
     }
-  }, [getValidToken]);
+  }, []);
 
   return (
     <AuthContext.Provider
       value={{
         user,
         token,
-        isLoading: !clerkLoaded || isLoading,
-        isSignedIn: !!isSignedIn,
+        isLoading,
+        isSignedIn: !!user,
+        login,
+        signup,
+        loginWithGoogle,
         logout,
         updateUser,
         refreshUser,
         getValidToken,
+        setAuthToken,
       }}
     >
       {children}

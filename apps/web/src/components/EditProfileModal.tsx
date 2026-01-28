@@ -14,7 +14,7 @@ interface EditProfileModalProps {
   initialData: {
     displayName: string;
     avatarUrl: string | null;
-    avatarType: 'CUSTOM' | 'PRESET' | 'CLERK';
+    avatarType: 'CUSTOM' | 'PRESET' | 'GOOGLE';
     presetAvatarId: string | null;
   };
 }
@@ -58,7 +58,7 @@ export function EditProfileModal({
 
   const handleAvatarSelect = (selection: {
     avatarUrl: string | null;
-    avatarType: 'CUSTOM' | 'PRESET' | 'CLERK';
+    avatarType: 'CUSTOM' | 'PRESET' | 'GOOGLE';
     presetAvatarId: string | null;
   }) => {
     setFormData((prev) => ({
@@ -177,7 +177,7 @@ export function EditProfileModal({
                 Display Name
               </label>
               <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-dark-400" />
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-primary-400/60" />
                 <input
                   type="text"
                   value={formData.displayName}

@@ -339,10 +339,41 @@ export default function CommissionerStudioPage() {
           <div className="col-span-12 lg:col-span-5 xl:col-span-4 flex flex-col gap-6">
             {/* Video Preview */}
             <div className="aspect-video rounded-2xl overflow-hidden bg-dark-800 shadow-glass-lg">
-              <StudioVideoPreview
-                token={livekitToken}
-                onViewerCountChange={setViewerCount}
-              />
+              {!pool.streamEnabled ? (
+                <div className="w-full h-full flex items-center justify-center bg-dark-800/50">
+                  <div className="text-center">
+                    <div className="w-24 h-24 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary-500/20 to-gold-500/20 flex items-center justify-center shadow-glass-glow">
+                      <Radio className="w-12 h-12 text-primary-400" />
+                    </div>
+                    <h3 className="text-xl font-bold text-white mb-2">Enable Streaming</h3>
+                    <p className="text-dark-400 mb-6 max-w-xs mx-auto">
+                      Enable streaming to broadcast your camera and audio to viewers in the draft room
+                    </p>
+                    <button
+                      onClick={handleEnableStreaming}
+                      disabled={isLoading}
+                      className="glass-btn-gold px-8 py-3 text-lg"
+                    >
+                      {isLoading ? (
+                        <>
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                          Enabling...
+                        </>
+                      ) : (
+                        <>
+                          <Radio className="w-5 h-5" />
+                          Enable Streaming
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <StudioVideoPreview
+                  token={livekitToken}
+                  onViewerCountChange={setViewerCount}
+                />
+              )}
             </div>
 
             {/* Current Auction */}

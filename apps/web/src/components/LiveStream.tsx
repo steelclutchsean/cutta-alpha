@@ -203,9 +203,6 @@ function StreamContent({
 
     // Listen for new tracks being published
     const handleTrackPublished = () => {
-      // #region agent log - H5: Log track published event
-      fetch('http://127.0.0.1:7243/ingest/f27148f8-b77a-4363-be3f-1ff8169b4d58',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'LiveStream.tsx:handleTrackPublished',message:'Track published event fired',data:{remoteParticipantCount:room.remoteParticipants.size},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
-      // #endregion
       room.remoteParticipants.forEach((participant) => {
         participant.trackPublications.forEach((pub) => {
           if (pub.kind === Track.Kind.Video && !pub.isSubscribed) {

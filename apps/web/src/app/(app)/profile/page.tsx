@@ -198,9 +198,9 @@ export default function ProfilePage() {
             </div>
           ) : (
             <div className="text-center py-8">
-              <Users className="w-10 h-10 text-dark-500 mx-auto mb-3" />
-              <p className="text-dark-400 mb-3">No active pools</p>
-              <Link href="/pools/join" className="btn-secondary text-sm">
+              <Users className="w-10 h-10 text-primary-400/40 mx-auto mb-3" />
+              <p className="text-text-secondary mb-3">No active pools</p>
+              <Link href="/pools/join" className="glass-btn-primary text-sm">
                 Join a Pool
               </Link>
             </div>
@@ -266,8 +266,8 @@ export default function ProfilePage() {
             </div>
           ) : (
             <div className="text-center py-8">
-              <TrendingUp className="w-10 h-10 text-dark-500 mx-auto mb-3" />
-              <p className="text-dark-400">No recent activity</p>
+              <TrendingUp className="w-10 h-10 text-primary-400/40 mx-auto mb-3" />
+              <p className="text-text-secondary">No recent activity</p>
             </div>
           )}
         </motion.div>
@@ -307,8 +307,8 @@ export default function ProfilePage() {
                     className="w-10 h-10 rounded-lg object-cover"
                   />
                 ) : (
-                  <div className="w-10 h-10 rounded-lg bg-dark-600 flex items-center justify-center">
-                    <Shield className="w-5 h-5 text-dark-400" />
+                  <div className="w-10 h-10 rounded-lg bg-primary-500/10 border border-primary-500/20 flex items-center justify-center">
+                    <Shield className="w-5 h-5 text-primary-400/60" />
                   </div>
                 )}
                 <div className="flex-1 min-w-0">
@@ -335,9 +335,9 @@ export default function ProfilePage() {
         >
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold flex items-center gap-2">
-              <Archive className="w-5 h-5 text-dark-400" />
+              <Archive className="w-5 h-5 text-gold-400/60" />
               Deleted Pools History
-              <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-dark-600 text-dark-300">
+              <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-gold-500/10 border border-gold-500/20 text-gold-400/70">
                 Private
               </span>
             </h2>
@@ -454,7 +454,7 @@ function StatCard({
     gold: 'bg-gold-500/10 text-gold-400',
     primary: 'bg-primary-500/10 text-primary-400',
     success: 'bg-green-500/10 text-green-400',
-    default: 'bg-dark-600 text-dark-300',
+    default: 'bg-primary-500/10 border border-primary-500/20 text-primary-400/60',
   };
 
   return (

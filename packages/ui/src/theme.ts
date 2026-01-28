@@ -2,32 +2,46 @@
 // Inspired by sportsbook/fantasy sports aesthetics
 
 export const colors = {
-  // Primary brand colors
+  // Primary brand colors - Sea Green
   primary: {
-    50: '#e6f7ff',
-    100: '#b3e7ff',
-    200: '#80d4ff',
-    300: '#4dc1ff',
-    400: '#26b3ff',
-    500: '#00a3ff', // Main primary
-    600: '#0082cc',
-    700: '#006199',
-    800: '#004166',
-    900: '#002033',
+    50: '#e8f5ec',
+    100: '#c5e6d0',
+    200: '#9ed4b2',
+    300: '#77c294',
+    400: '#59b37d',
+    500: '#2E8B57', // Main green
+    600: '#277549',
+    700: '#1f5d3a',
+    800: '#17452c',
+    900: '#0f2d1d',
   },
   
-  // Accent colors for wins/success
+  // Accent colors for wins/success - Rich Gold
   gold: {
-    50: '#fff9e6',
-    100: '#ffecb3',
-    200: '#ffe080',
-    300: '#ffd34d',
-    400: '#ffc926',
-    500: '#ffbf00', // Main gold
-    600: '#cc9900',
-    700: '#997300',
-    800: '#664d00',
-    900: '#332600',
+    50: '#fdf8e8',
+    100: '#f9ecc4',
+    200: '#f2db8a',
+    300: '#e8c85c',
+    400: '#deb941',
+    500: '#D4AF37', // Main gold
+    600: '#b8962e',
+    700: '#8f7423',
+    800: '#665319',
+    900: '#3d310f',
+  },
+  
+  // Beige/Cream accent
+  beige: {
+    50: '#fdfdf8',
+    100: '#fbfbf2',
+    200: '#f8f8e8',
+    300: '#f5f5dc', // Main beige (#F5F5DC)
+    400: '#e8e8c8',
+    500: '#d4d4b0',
+    600: '#b8b898',
+    700: '#9c9c80',
+    800: '#7a7a64',
+    900: '#585848',
   },
   
   // Success/positive (green)
@@ -165,9 +179,9 @@ export const shadows = {
   lg: '0 10px 15px rgba(0, 0, 0, 0.5)',
   xl: '0 20px 25px rgba(0, 0, 0, 0.5)',
   glow: {
-    primary: '0 0 20px rgba(0, 163, 255, 0.4)',
-    gold: '0 0 20px rgba(255, 191, 0, 0.4)',
-    success: '0 0 20px rgba(0, 255, 119, 0.4)',
+    primary: '0 0 20px rgba(46, 139, 87, 0.4)',
+    gold: '0 0 20px rgba(212, 175, 55, 0.4)',
+    success: '0 0 20px rgba(46, 139, 87, 0.4)',
     error: '0 0 20px rgba(255, 0, 0, 0.4)',
   },
 } as const;

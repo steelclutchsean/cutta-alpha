@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import useSWR from 'swr';
 import { useAuth } from './auth-context';
 import { useSocket } from './socket-context';
@@ -195,9 +195,6 @@ export function useDebounce<T>(value: T, delay: number): T {
   return debouncedValue;
 }
 
-// Missing useState import fix
-import { useState } from 'react';
-
 // Interval hook for timer
 export function useInterval(callback: () => void, delay: number | null) {
   const savedCallback = useRef(callback);
@@ -250,4 +247,3 @@ export function useLocalStorage<T>(
 
   return [storedValue, setValue];
 }
-

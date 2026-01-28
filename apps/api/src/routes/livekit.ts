@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { prisma } from '@cutta/db';
+import { db, eq, and, pools, poolMembers, users } from '@cutta/db';
 import { authenticate } from '../middleware/auth.js';
 import { AppError } from '../middleware/error.js';
 import { generateLiveKitToken, createDraftRoom } from '../services/livekit.js';
@@ -15,25 +15,25 @@ livekitRouter.get('/token/:poolId', async (req, res, next) => {
     const { poolId } = req.params;
 
     // Verify membership
-    const membership = await prisma.poolMember.findUnique({
-      where: { poolId_userId: { poolId, userId: req.user!.id } },
+    const membership = await db.query.poolMembers.findFirst({
+      where: and(eq(poolMembers.poolId, poolId), eq(poolMembers.userId, req.user!.id)),
     });
 
     if (!membership) {
       throw new AppError(403, 'Not a member of this pool', 'NOT_MEMBER');
     }
 
-    const pool = await prisma.pool.findUnique({
-      where: { id: poolId },
+    const pool = await db.query.pools.findFirst({
+      where: eq(pools.id, poolId),
     });
 
     if (!pool) {
       throw new AppError(404, 'Pool not found', 'NOT_FOUND');
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: req.user!.id },
-      select: { displayName: true },
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, req.user!.id),
+      columns: { displayName: true },
     });
 
     const isHost = pool.commissionerId === req.user!.id;
@@ -61,8 +61,8 @@ livekitRouter.post('/:poolId/enable', async (req, res, next) => {
   try {
     const { poolId } = req.params;
 
-    const pool = await prisma.pool.findUnique({
-      where: { id: poolId },
+    const pool = await db.query.pools.findFirst({
+      where: eq(pools.id, poolId),
     });
 
     if (!pool) {
@@ -77,13 +77,13 @@ livekitRouter.post('/:poolId/enable', async (req, res, next) => {
     const roomName = await createDraftRoom(poolId);
 
     // Update pool
-    await prisma.pool.update({
-      where: { id: poolId },
-      data: {
+    await db.update(pools)
+      .set({
         streamEnabled: true,
         livekitRoom: roomName,
-      },
-    });
+        updatedAt: new Date(),
+      })
+      .where(eq(pools.id, poolId));
 
     res.json({
       message: 'Streaming enabled',
@@ -99,8 +99,8 @@ livekitRouter.post('/:poolId/disable', async (req, res, next) => {
   try {
     const { poolId } = req.params;
 
-    const pool = await prisma.pool.findUnique({
-      where: { id: poolId },
+    const pool = await db.query.pools.findFirst({
+      where: eq(pools.id, poolId),
     });
 
     if (!pool) {
@@ -111,16 +111,15 @@ livekitRouter.post('/:poolId/disable', async (req, res, next) => {
       throw new AppError(403, 'Only commissioner can disable streaming', 'NOT_COMMISSIONER');
     }
 
-    await prisma.pool.update({
-      where: { id: poolId },
-      data: {
+    await db.update(pools)
+      .set({
         streamEnabled: false,
-      },
-    });
+        updatedAt: new Date(),
+      })
+      .where(eq(pools.id, poolId));
 
     res.json({ message: 'Streaming disabled' });
   } catch (error) {
     next(error);
   }
 });
-

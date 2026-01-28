@@ -55,3 +55,4 @@ echo "
   4. Check error logs: tail -f logs/api-error.log
 "
 
+

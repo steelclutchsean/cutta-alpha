@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { prisma } from '@cutta/db';
+import { db, eq, and, or, desc, count, users, paymentMethods, ownerships, poolMembers, transactions, payouts, deletedPools, listings, auctionItems, teams, pools } from '@cutta/db';
 import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { addPaymentMethodSchema, withdrawSchema } from '@cutta/shared';
@@ -12,67 +12,70 @@ export const usersRouter = Router();
 // All routes require authentication
 usersRouter.use(authenticate);
 
-// Sync Clerk user with database
+// Sync Google user with database (called after OAuth)
 usersRouter.post('/sync', async (req, res, next) => {
   try {
-    const { clerkId, email, displayName, avatarUrl } = req.body;
+    const { googleId, email, displayName, avatarUrl } = req.body;
     
-    if (!clerkId || !email) {
-      throw new AppError(400, 'clerkId and email are required', 'VALIDATION_ERROR');
+    if (!email) {
+      throw new AppError(400, 'email is required', 'VALIDATION_ERROR');
     }
 
-    // Find or create user
-    let user = await prisma.user.findFirst({
-      where: { clerkId },
-    });
+    // Find user by googleId if provided
+    let user = googleId ? await db.query.users.findFirst({
+      where: eq(users.googleId, googleId),
+    }) : null;
 
     if (!user) {
-      // Check if user exists by email (legacy user migration)
-      user = await prisma.user.findUnique({
-        where: { email },
+      // Check if user exists by email
+      user = await db.query.users.findFirst({
+        where: eq(users.email, email),
       });
 
       if (user) {
-        // Link existing user to Clerk - only update avatar if user doesn't have a custom one set
-        const shouldUpdateAvatar = user.avatarType === 'CLERK' || !user.avatarUrl;
-        user = await prisma.user.update({
-          where: { id: user.id },
-          data: { 
-            clerkId, 
+        // Link existing user to Google - only update avatar if user doesn't have a custom one set
+        const shouldUpdateAvatar = user.avatarType === 'GOOGLE' || !user.avatarUrl;
+        const [updated] = await db.update(users)
+          .set({ 
+            ...(googleId && { googleId }),
             ...(shouldUpdateAvatar && avatarUrl && { 
               avatarUrl,
-              avatarType: 'CLERK',
+              avatarType: 'GOOGLE' as const,
             }),
-          },
-        });
+          })
+          .where(eq(users.id, user.id))
+          .returning();
+        user = updated;
       } else {
-        // Create new user with Clerk avatar
-        user = await prisma.user.create({
-          data: {
-            clerkId,
+        // Create new user
+        const [created] = await db.insert(users)
+          .values({
+            googleId: googleId || null,
             email,
             displayName: displayName || email.split('@')[0],
             avatarUrl,
-            avatarType: avatarUrl ? 'CLERK' : 'CUSTOM',
-            passwordHash: null, // No password for Clerk users
-          },
-        });
+            avatarType: avatarUrl ? 'GOOGLE' : 'CUSTOM',
+            passwordHash: null,
+          })
+          .returning();
+        user = created;
       }
     } else {
-      // Update existing user info - only update avatar if user uses Clerk avatar
-      const shouldUpdateAvatar = user.avatarType === 'CLERK';
-      user = await prisma.user.update({
-        where: { id: user.id },
-        data: {
+      // Update existing user info - only update avatar if user uses Google avatar
+      const shouldUpdateAvatar = user.avatarType === 'GOOGLE';
+      const [updated] = await db.update(users)
+        .set({
           displayName: displayName || user.displayName,
           ...(shouldUpdateAvatar && avatarUrl && { avatarUrl }),
-        },
-      });
+        })
+        .where(eq(users.id, user.id))
+        .returning();
+      user = updated;
     }
 
     res.json({
       id: user.id,
-      clerkId: user.clerkId,
+      googleId: user.googleId,
       email: user.email,
       displayName: user.displayName,
       avatarUrl: user.avatarUrl,
@@ -94,11 +97,11 @@ usersRouter.get('/me', async (req, res, next) => {
       throw new AppError(401, 'Not authenticated', 'UNAUTHORIZED');
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
-      select: {
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, req.user.id),
+      columns: {
         id: true,
-        clerkId: true,
+        googleId: true,
         email: true,
         displayName: true,
         avatarUrl: true,
@@ -156,25 +159,25 @@ usersRouter.get('/avatars/presets', async (req, res) => {
 // Get user profile
 usersRouter.get('/profile', async (req, res, next) => {
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: req.user!.id },
-      include: {
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, req.user!.id),
+      with: {
         ownerships: {
-          include: {
+          with: {
             auctionItem: {
-              include: {
+              with: {
                 team: true,
                 pool: {
-                  select: { id: true, name: true },
+                  columns: { id: true, name: true },
                 },
               },
             },
           },
         },
         poolMemberships: {
-          include: {
+          with: {
             pool: {
-              select: {
+              columns: {
                 id: true,
                 name: true,
                 status: true,
@@ -183,18 +186,16 @@ usersRouter.get('/profile', async (req, res, next) => {
             },
           },
         },
-        _count: {
-          select: {
-            ownerships: true,
-            listings: true,
-          },
-        },
       },
     });
 
     if (!user) {
       throw new AppError(404, 'User not found', 'USER_NOT_FOUND');
     }
+
+    // Get counts
+    const [ownershipCount] = await db.select({ count: count() }).from(ownerships).where(eq(ownerships.userId, req.user!.id));
+    const [listingCount] = await db.select({ count: count() }).from(listings).where(eq(listings.sellerId, req.user!.id));
 
     // Calculate total winnings
     const totalWinnings = user.poolMemberships.reduce(
@@ -214,8 +215,8 @@ usersRouter.get('/profile', async (req, res, next) => {
       kycVerified: user.kycVerified,
       createdAt: user.createdAt,
       totalWinnings,
-      ownedTeams: user._count.ownerships,
-      activeListings: user._count.listings,
+      ownedTeams: ownershipCount?.count || 0,
+      activeListings: listingCount?.count || 0,
       poolsJoined: user.poolMemberships.length,
       pools: user.poolMemberships.map((pm) => pm.pool),
       ownerships: user.ownerships,
@@ -238,27 +239,26 @@ usersRouter.patch('/profile', async (req, res, next) => {
       }
     }
 
-    const user = await prisma.user.update({
-      where: { id: req.user!.id },
-      data: {
+    const [user] = await db.update(users)
+      .set({
         ...(displayName && { displayName }),
         ...(avatarUrl !== undefined && { avatarUrl }),
         ...(avatarType && { avatarType }),
         ...(presetAvatarId !== undefined && { presetAvatarId }),
         ...(phone !== undefined && { phone: phone || null }),
-      },
-      select: {
-        id: true,
-        email: true,
-        displayName: true,
-        avatarUrl: true,
-        avatarType: true,
-        presetAvatarId: true,
-        phone: true,
-        balance: true,
-        kycVerified: true,
-      },
-    });
+      })
+      .where(eq(users.id, req.user!.id))
+      .returning({
+        id: users.id,
+        email: users.email,
+        displayName: users.displayName,
+        avatarUrl: users.avatarUrl,
+        avatarType: users.avatarType,
+        presetAvatarId: users.presetAvatarId,
+        phone: users.phone,
+        balance: users.balance,
+        kycVerified: users.kycVerified,
+      });
 
     res.json(user);
   } catch (error) {
@@ -272,20 +272,20 @@ usersRouter.get('/transactions/analytics', async (req, res, next) => {
     const userId = req.user!.id;
 
     // Get all transactions for the user
-    const transactions = await prisma.transaction.findMany({
-      where: {
-        OR: [{ buyerId: userId }, { sellerId: userId }],
-        status: 'COMPLETED',
-      },
-      include: {
+    const userTransactions = await db.query.transactions.findMany({
+      where: and(
+        or(eq(transactions.buyerId, userId), eq(transactions.sellerId, userId)),
+        eq(transactions.status, 'COMPLETED')
+      ),
+      with: {
         listing: {
-          include: {
+          with: {
             ownership: {
-              include: {
+              with: {
                 auctionItem: {
-                  include: {
+                  with: {
                     team: true,
-                    pool: { select: { id: true, name: true } },
+                    pool: { columns: { id: true, name: true } },
                   },
                 },
               },
@@ -293,26 +293,26 @@ usersRouter.get('/transactions/analytics', async (req, res, next) => {
           },
         },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: desc(transactions.createdAt),
     });
 
     // Get payouts for the user
-    const payouts = await prisma.payout.findMany({
-      where: {
-        userId,
-        status: 'PROCESSED',
-      },
-      include: {
-        pool: { select: { id: true, name: true } },
+    const userPayouts = await db.query.payouts.findMany({
+      where: and(
+        eq(payouts.userId, userId),
+        eq(payouts.status, 'PROCESSED')
+      ),
+      with: {
+        pool: { columns: { id: true, name: true } },
       },
     });
 
     // Calculate summary
     let totalSpent = 0;
     let totalEarned = 0;
-    const totalWinnings = payouts.reduce((sum, p) => sum + Number(p.amount), 0);
+    const totalWinnings = userPayouts.reduce((sum, p) => sum + Number(p.amount), 0);
 
-    transactions.forEach((tx) => {
+    userTransactions.forEach((tx) => {
       const amount = Number(tx.amount);
       if (tx.buyerId === userId) {
         totalSpent += amount;
@@ -324,7 +324,7 @@ usersRouter.get('/transactions/analytics', async (req, res, next) => {
 
     // Calculate by type
     const byTypeMap = new Map<string, { count: number; total: number }>();
-    transactions.forEach((tx) => {
+    userTransactions.forEach((tx) => {
       const existing = byTypeMap.get(tx.type) || { count: 0, total: 0 };
       existing.count += 1;
       existing.total += Number(tx.amount);
@@ -338,7 +338,7 @@ usersRouter.get('/transactions/analytics', async (req, res, next) => {
     // Calculate by pool
     const byPoolMap = new Map<string, { poolId: string; poolName: string; spent: number; earned: number; winnings: number }>();
     
-    transactions.forEach((tx) => {
+    userTransactions.forEach((tx) => {
       const pool = tx.listing?.ownership?.auctionItem?.pool;
       if (pool) {
         const existing = byPoolMap.get(pool.id) || {
@@ -359,7 +359,7 @@ usersRouter.get('/transactions/analytics', async (req, res, next) => {
     });
 
     // Add payouts to pool data
-    payouts.forEach((payout) => {
+    userPayouts.forEach((payout) => {
       const existing = byPoolMap.get(payout.poolId) || {
         poolId: payout.poolId,
         poolName: payout.pool.name,
@@ -376,7 +376,7 @@ usersRouter.get('/transactions/analytics', async (req, res, next) => {
     // Calculate monthly trends
     const monthlyMap = new Map<string, { spent: number; earned: number; winnings: number }>();
     
-    transactions.forEach((tx) => {
+    userTransactions.forEach((tx) => {
       const month = tx.createdAt.toISOString().slice(0, 7); // YYYY-MM
       const existing = monthlyMap.get(month) || { spent: 0, earned: 0, winnings: 0 };
       if (tx.buyerId === userId) {
@@ -388,7 +388,7 @@ usersRouter.get('/transactions/analytics', async (req, res, next) => {
       monthlyMap.set(month, existing);
     });
 
-    payouts.forEach((payout) => {
+    userPayouts.forEach((payout) => {
       const month = payout.createdAt.toISOString().slice(0, 7);
       const existing = monthlyMap.get(month) || { spent: 0, earned: 0, winnings: 0 };
       existing.winnings += Number(payout.amount);
@@ -405,7 +405,7 @@ usersRouter.get('/transactions/analytics', async (req, res, next) => {
         totalEarned,
         totalWinnings,
         netPnL: totalEarned + totalWinnings - totalSpent,
-        transactionCount: transactions.length,
+        transactionCount: userTransactions.length,
       },
       byType,
       byPool,
@@ -422,38 +422,31 @@ usersRouter.get('/transactions', async (req, res, next) => {
     const userId = req.user!.id;
     const { type, poolId, startDate, endDate, limit = '50', offset = '0' } = req.query;
 
-    const where: any = {
-      OR: [{ buyerId: userId }, { sellerId: userId }],
-      status: 'COMPLETED',
-    };
+    // Build conditions
+    const conditions = [
+      or(eq(transactions.buyerId, userId), eq(transactions.sellerId, userId)),
+      eq(transactions.status, 'COMPLETED'),
+    ];
 
     if (type) {
-      where.type = type as string;
+      conditions.push(eq(transactions.type, type as typeof transactions.type.enumValues[number]));
     }
 
-    if (startDate || endDate) {
-      where.createdAt = {};
-      if (startDate) {
-        where.createdAt.gte = new Date(startDate as string);
-      }
-      if (endDate) {
-        where.createdAt.lte = new Date(endDate as string);
-      }
-    }
-
-    const transactions = await prisma.transaction.findMany({
-      where,
-      include: {
+    // Note: Date filtering in Drizzle requires SQL functions
+    // For simplicity, we filter in application code
+    const userTransactions = await db.query.transactions.findMany({
+      where: and(...conditions),
+      with: {
         listing: {
-          include: {
+          with: {
             ownership: {
-              include: {
+              with: {
                 auctionItem: {
-                  include: {
+                  with: {
                     team: {
-                      select: { id: true, name: true, shortName: true, logoUrl: true },
+                      columns: { id: true, name: true, shortName: true, logoUrl: true },
                     },
-                    pool: { select: { id: true, name: true } },
+                    pool: { columns: { id: true, name: true } },
                   },
                 },
               },
@@ -461,26 +454,38 @@ usersRouter.get('/transactions', async (req, res, next) => {
           },
         },
       },
-      orderBy: { createdAt: 'desc' },
-      take: parseInt(limit as string),
-      skip: parseInt(offset as string),
+      orderBy: desc(transactions.createdAt),
+      limit: parseInt(limit as string),
+      offset: parseInt(offset as string),
     });
 
-    // Filter by pool if specified (after query since it's nested)
-    let filteredTransactions = transactions;
+    // Filter by date if specified
+    let filteredTransactions = userTransactions;
+    if (startDate) {
+      const start = new Date(startDate as string);
+      filteredTransactions = filteredTransactions.filter(tx => tx.createdAt >= start);
+    }
+    if (endDate) {
+      const end = new Date(endDate as string);
+      filteredTransactions = filteredTransactions.filter(tx => tx.createdAt <= end);
+    }
+
+    // Filter by pool if specified
     if (poolId) {
-      filteredTransactions = transactions.filter(
+      filteredTransactions = filteredTransactions.filter(
         (tx) => tx.listing?.ownership?.auctionItem?.pool?.id === poolId
       );
     }
 
     // Get total count for pagination
-    const totalCount = await prisma.transaction.count({ where });
+    const [totalResult] = await db.select({ count: count() })
+      .from(transactions)
+      .where(and(...conditions));
 
     res.json({
       transactions: filteredTransactions,
       pagination: {
-        total: totalCount,
+        total: totalResult?.count || 0,
         limit: parseInt(limit as string),
         offset: parseInt(offset as string),
       },
@@ -493,12 +498,12 @@ usersRouter.get('/transactions', async (req, res, next) => {
 // Get payment methods
 usersRouter.get('/payment-methods', async (req, res, next) => {
   try {
-    const paymentMethods = await prisma.paymentMethod.findMany({
-      where: { userId: req.user!.id },
-      orderBy: { createdAt: 'desc' },
+    const userPaymentMethods = await db.query.paymentMethods.findMany({
+      where: eq(paymentMethods.userId, req.user!.id),
+      orderBy: desc(paymentMethods.createdAt),
     });
 
-    res.json(paymentMethods);
+    res.json(userPaymentMethods);
   } catch (error) {
     next(error);
   }
@@ -513,8 +518,8 @@ usersRouter.post(
       const { paymentMethodId, setAsDefault } = req.body;
 
       // Get user's Stripe customer ID or create one
-      let user = await prisma.user.findUnique({
-        where: { id: req.user!.id },
+      let user = await db.query.users.findFirst({
+        where: eq(users.id, req.user!.id),
       });
 
       if (!user) {
@@ -531,10 +536,9 @@ usersRouter.post(
         });
         stripeCustomerId = customer.id;
 
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { stripeCustomerId },
-        });
+        await db.update(users)
+          .set({ stripeCustomerId })
+          .where(eq(users.id, user.id));
       }
 
       // Attach payment method to customer
@@ -551,10 +555,9 @@ usersRouter.post(
 
       // If setting as default, update all existing to non-default
       if (setAsDefault) {
-        await prisma.paymentMethod.updateMany({
-          where: { userId: req.user!.id },
-          data: { isDefault: false },
-        });
+        await db.update(paymentMethods)
+          .set({ isDefault: false })
+          .where(eq(paymentMethods.userId, req.user!.id));
 
         // Set as default in Stripe
         await stripe.customers.update(stripeCustomerId, {
@@ -563,22 +566,22 @@ usersRouter.post(
       }
 
       // Check if this is the first payment method
-      const existingCount = await prisma.paymentMethod.count({
-        where: { userId: req.user!.id },
-      });
+      const [existingCountResult] = await db.select({ count: count() })
+        .from(paymentMethods)
+        .where(eq(paymentMethods.userId, req.user!.id));
 
       // Create payment method record
-      const paymentMethod = await prisma.paymentMethod.create({
-        data: {
+      const [paymentMethod] = await db.insert(paymentMethods)
+        .values({
           userId: req.user!.id,
           stripePaymentMethodId: paymentMethodId,
           last4: pm.card.last4,
           brand: pm.card.brand,
           expiryMonth: pm.card.exp_month,
           expiryYear: pm.card.exp_year,
-          isDefault: setAsDefault || existingCount === 0,
-        },
-      });
+          isDefault: setAsDefault || (existingCountResult?.count || 0) === 0,
+        })
+        .returning();
 
       res.status(201).json(paymentMethod);
     } catch (error) {
@@ -592,8 +595,8 @@ usersRouter.delete('/payment-methods/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const paymentMethod = await prisma.paymentMethod.findFirst({
-      where: { id, userId: req.user!.id },
+    const paymentMethod = await db.query.paymentMethods.findFirst({
+      where: and(eq(paymentMethods.id, id), eq(paymentMethods.userId, req.user!.id)),
     });
 
     if (!paymentMethod) {
@@ -604,22 +607,19 @@ usersRouter.delete('/payment-methods/:id', async (req, res, next) => {
     await stripe.paymentMethods.detach(paymentMethod.stripePaymentMethodId);
 
     // Delete from database
-    await prisma.paymentMethod.delete({
-      where: { id },
-    });
+    await db.delete(paymentMethods).where(eq(paymentMethods.id, id));
 
     // If this was the default, make another one default
     if (paymentMethod.isDefault) {
-      const nextDefault = await prisma.paymentMethod.findFirst({
-        where: { userId: req.user!.id },
-        orderBy: { createdAt: 'desc' },
+      const nextDefault = await db.query.paymentMethods.findFirst({
+        where: eq(paymentMethods.userId, req.user!.id),
+        orderBy: desc(paymentMethods.createdAt),
       });
 
       if (nextDefault) {
-        await prisma.paymentMethod.update({
-          where: { id: nextDefault.id },
-          data: { isDefault: true },
-        });
+        await db.update(paymentMethods)
+          .set({ isDefault: true })
+          .where(eq(paymentMethods.id, nextDefault.id));
       }
     }
 
@@ -632,23 +632,23 @@ usersRouter.delete('/payment-methods/:id', async (req, res, next) => {
 // Get balance and transactions
 usersRouter.get('/balance', async (req, res, next) => {
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: req.user!.id },
-      select: { balance: true },
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, req.user!.id),
+      columns: { balance: true },
     });
 
-    const transactions = await prisma.transaction.findMany({
-      where: {
-        OR: [{ buyerId: req.user!.id }, { sellerId: req.user!.id }],
-        status: 'COMPLETED',
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
+    const userTransactions = await db.query.transactions.findMany({
+      where: and(
+        or(eq(transactions.buyerId, req.user!.id), eq(transactions.sellerId, req.user!.id)),
+        eq(transactions.status, 'COMPLETED')
+      ),
+      orderBy: desc(transactions.createdAt),
+      limit: 50,
     });
 
     res.json({
       balance: user?.balance || 0,
-      transactions,
+      transactions: userTransactions,
     });
   } catch (error) {
     next(error);
@@ -660,28 +660,19 @@ usersRouter.get('/ownerships', async (req, res, next) => {
   try {
     const { poolId } = req.query;
 
-    const where: Record<string, unknown> = {
-      userId: req.user!.id,
-    };
-
-    if (poolId) {
-      where.auctionItem = { poolId: poolId as string };
-    }
-
-    const ownerships = await prisma.ownership.findMany({
-      where,
-      include: {
+    const userOwnerships = await db.query.ownerships.findMany({
+      where: eq(ownerships.userId, req.user!.id),
+      with: {
         auctionItem: {
-          include: {
+          with: {
             team: true,
             pool: {
-              select: { id: true, name: true, status: true },
+              columns: { id: true, name: true, status: true },
             },
           },
         },
         listings: {
-          where: { status: 'ACTIVE' },
-          select: {
+          columns: {
             id: true,
             percentageForSale: true,
             askingPrice: true,
@@ -689,17 +680,27 @@ usersRouter.get('/ownerships', async (req, res, next) => {
           },
         },
       },
-      orderBy: { acquiredAt: 'desc' },
+      orderBy: desc(ownerships.acquiredAt),
     });
 
-    // Calculate available percentage for each ownership
-    const ownershipsWithAvailable = ownerships.map((ownership) => {
-      const listedPercentage = ownership.listings.reduce(
+    // Filter by pool if specified
+    let filteredOwnerships = userOwnerships;
+    if (poolId) {
+      filteredOwnerships = userOwnerships.filter(
+        (o) => o.auctionItem?.pool?.id === poolId
+      );
+    }
+
+    // Filter to active listings and calculate available percentage
+    const ownershipsWithAvailable = filteredOwnerships.map((ownership) => {
+      const activeListings = ownership.listings.filter(l => l.status === 'ACTIVE');
+      const listedPercentage = activeListings.reduce(
         (sum, listing) => sum + Number(listing.percentageForSale),
         0
       );
       return {
         ...ownership,
+        listings: activeListings,
         availablePercentage: Number(ownership.percentage) - listedPercentage,
         listedPercentage,
       };
@@ -714,12 +715,12 @@ usersRouter.get('/ownerships', async (req, res, next) => {
 // Get deleted pools history (private, commissioner only)
 usersRouter.get('/deleted-pools', async (req, res, next) => {
   try {
-    const deletedPools = await prisma.deletedPool.findMany({
-      where: { commissionerId: req.user!.id },
-      orderBy: { deletedAt: 'desc' },
+    const userDeletedPools = await db.query.deletedPools.findMany({
+      where: eq(deletedPools.commissionerId, req.user!.id),
+      orderBy: desc(deletedPools.deletedAt),
     });
 
-    res.json(deletedPools);
+    res.json(userDeletedPools);
   } catch (error) {
     next(error);
   }
@@ -730,8 +731,8 @@ usersRouter.post('/withdraw', validate(withdrawSchema), async (req, res, next) =
   try {
     const { amount } = req.body;
 
-    const user = await prisma.user.findUnique({
-      where: { id: req.user!.id },
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, req.user!.id),
     });
 
     if (!user) {
@@ -751,31 +752,29 @@ usersRouter.post('/withdraw', validate(withdrawSchema), async (req, res, next) =
     }
 
     // Create withdrawal transaction (would integrate with Stripe Connect payouts)
-    const transaction = await prisma.transaction.create({
-      data: {
+    const [transaction] = await db.insert(transactions)
+      .values({
         type: 'WITHDRAWAL',
         sellerId: user.id,
-        amount,
-        platformFee: 0,
-        netAmount: amount,
+        amount: String(amount),
+        platformFee: '0',
+        netAmount: String(amount),
         status: 'PENDING',
-      },
-    });
+      })
+      .returning();
 
     // Deduct from balance
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        balance: { decrement: amount },
-      },
-    });
+    await db.update(users)
+      .set({
+        balance: String(Number(user.balance) - amount),
+      })
+      .where(eq(users.id, user.id));
 
     // In production, this would trigger a Stripe Connect payout
     // For now, we'll mark it as completed
-    await prisma.transaction.update({
-      where: { id: transaction.id },
-      data: { status: 'COMPLETED' },
-    });
+    await db.update(transactions)
+      .set({ status: 'COMPLETED' })
+      .where(eq(transactions.id, transaction.id));
 
     res.json({
       message: 'Withdrawal request submitted',
@@ -785,4 +784,3 @@ usersRouter.post('/withdraw', validate(withdrawSchema), async (req, res, next) =
     next(error);
   }
 });
-

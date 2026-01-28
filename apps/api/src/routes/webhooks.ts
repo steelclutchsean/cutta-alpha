@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import Stripe from 'stripe';
-import { prisma } from '@cutta/db';
+import { db, eq, transactions, games, teams } from '@cutta/db';
 import { stripe } from '../services/stripe.js';
 import { config } from '../config/index.js';
 
@@ -27,10 +27,9 @@ webhooksRouter.post('/stripe', async (req: Request, res: Response) => {
         console.log('Payment succeeded:', paymentIntent.id);
 
         // Update transaction status
-        await prisma.transaction.updateMany({
-          where: { stripePaymentIntentId: paymentIntent.id },
-          data: { status: 'COMPLETED' },
-        });
+        await db.update(transactions)
+          .set({ status: 'COMPLETED' })
+          .where(eq(transactions.stripePaymentIntentId, paymentIntent.id));
         break;
       }
 
@@ -39,10 +38,9 @@ webhooksRouter.post('/stripe', async (req: Request, res: Response) => {
         console.log('Payment failed:', paymentIntent.id);
 
         // Update transaction status
-        await prisma.transaction.updateMany({
-          where: { stripePaymentIntentId: paymentIntent.id },
-          data: { status: 'FAILED' },
-        });
+        await db.update(transactions)
+          .set({ status: 'FAILED' })
+          .where(eq(transactions.stripePaymentIntentId, paymentIntent.id));
         break;
       }
 
@@ -56,10 +54,9 @@ webhooksRouter.post('/stripe', async (req: Request, res: Response) => {
         console.log('Charge refunded:', charge.id);
 
         if (charge.payment_intent) {
-          await prisma.transaction.updateMany({
-            where: { stripePaymentIntentId: charge.payment_intent as string },
-            data: { status: 'REFUNDED' },
-          });
+          await db.update(transactions)
+            .set({ status: 'REFUNDED' })
+            .where(eq(transactions.stripePaymentIntentId, charge.payment_intent as string));
         }
         break;
       }
@@ -83,28 +80,27 @@ webhooksRouter.post('/sports', async (req: Request, res: Response) => {
 
   try {
     if (gameId) {
-      const game = await prisma.game.update({
-        where: { externalId: gameId },
-        data: {
+      const [game] = await db.update(games)
+        .set({
           team1Score,
           team2Score,
           status: status?.toUpperCase(),
           winnerId,
           ...(status === 'final' && { completedAt: new Date() }),
-        },
-      });
+        })
+        .where(eq(games.externalId, gameId))
+        .returning();
 
       // If game completed, update team elimination status
-      if (status === 'final' && winnerId) {
+      if (status === 'final' && winnerId && game) {
         const loserId = winnerId === game.team1Id ? game.team2Id : game.team1Id;
         if (loserId) {
-          await prisma.team.update({
-            where: { id: loserId },
-            data: {
+          await db.update(teams)
+            .set({
               isEliminated: true,
               eliminatedRound: game.round,
-            },
-          });
+            })
+            .where(eq(teams.id, loserId));
 
           // Trigger payout processing for affected pools
           // This would be handled by a separate service
@@ -118,4 +114,3 @@ webhooksRouter.post('/sports', async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Webhook handler failed' });
   }
 });
-

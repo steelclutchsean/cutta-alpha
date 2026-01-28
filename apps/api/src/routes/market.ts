@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { prisma } from '@cutta/db';
+import { db, eq, and, or, ne, desc, count, listings, ownerships, offers, transactions, users, auctionItems, teams, pools } from '@cutta/db';
 import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { createListingSchema, createOfferSchema, respondToOfferSchema } from '@cutta/shared';
@@ -18,45 +18,39 @@ marketRouter.get('/listings', async (req, res, next) => {
   try {
     const { poolId, teamId, minPrice, maxPrice } = req.query;
 
-    const where: Record<string, unknown> = {
-      status: 'ACTIVE',
-    };
-
-    if (poolId) {
-      where.ownership = { auctionItem: { poolId: poolId as string } };
-    }
-
-    if (teamId) {
-      where.ownership = { auctionItem: { teamId: teamId as string } };
-    }
-
-    const listings = await prisma.listing.findMany({
-      where,
-      include: {
+    const allListings = await db.query.listings.findMany({
+      where: eq(listings.status, 'ACTIVE'),
+      with: {
         seller: {
-          select: { id: true, displayName: true, avatarUrl: true },
+          columns: { id: true, displayName: true, avatarUrl: true },
         },
         ownership: {
-          include: {
+          with: {
             auctionItem: {
-              include: {
+              with: {
                 team: true,
                 pool: {
-                  select: { id: true, name: true },
+                  columns: { id: true, name: true },
                 },
               },
             },
           },
         },
-        _count: {
-          select: { offers: { where: { status: 'PENDING' } } },
-        },
+        offers: true,
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: desc(listings.createdAt),
     });
 
+    // Filter by pool/team if specified
+    let filtered = allListings;
+    if (poolId) {
+      filtered = filtered.filter((l) => l.ownership.auctionItem?.pool?.id === poolId);
+    }
+    if (teamId) {
+      filtered = filtered.filter((l) => l.ownership.auctionItem?.teamId === teamId);
+    }
+
     // Filter by price if specified
-    let filtered = listings;
     if (minPrice) {
       filtered = filtered.filter((l) => Number(l.askingPrice) >= Number(minPrice));
     }
@@ -67,7 +61,7 @@ marketRouter.get('/listings', async (req, res, next) => {
     res.json(
       filtered.map((l) => ({
         ...l,
-        offerCount: l._count.offers,
+        offerCount: l.offers.filter(o => o.status === 'PENDING').length,
       }))
     );
   } catch (error) {
@@ -78,35 +72,40 @@ marketRouter.get('/listings', async (req, res, next) => {
 // Get my listings
 marketRouter.get('/my-listings', async (req, res, next) => {
   try {
-    const listings = await prisma.listing.findMany({
-      where: { sellerId: req.user!.id },
-      include: {
+    const myListings = await db.query.listings.findMany({
+      where: eq(listings.sellerId, req.user!.id),
+      with: {
         ownership: {
-          include: {
+          with: {
             auctionItem: {
-              include: {
+              with: {
                 team: true,
                 pool: {
-                  select: { id: true, name: true },
+                  columns: { id: true, name: true },
                 },
               },
             },
           },
         },
         offers: {
-          where: { status: 'PENDING' },
-          include: {
+          with: {
             buyer: {
-              select: { id: true, displayName: true, avatarUrl: true },
+              columns: { id: true, displayName: true, avatarUrl: true },
             },
           },
-          orderBy: { amount: 'desc' },
+          orderBy: desc(offers.amount),
         },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: desc(listings.createdAt),
     });
 
-    res.json(listings);
+    // Filter to pending offers only
+    const listingsWithPendingOffers = myListings.map(l => ({
+      ...l,
+      offers: l.offers.filter(o => o.status === 'PENDING'),
+    }));
+
+    res.json(listingsWithPendingOffers);
   } catch (error) {
     next(error);
   }
@@ -118,11 +117,11 @@ marketRouter.post('/listings', validate(createListingSchema), async (req, res, n
     const { ownershipId, percentageForSale, askingPrice, acceptingOffers, expiresInDays } = req.body;
 
     // Verify ownership
-    const ownership = await prisma.ownership.findUnique({
-      where: { id: ownershipId },
-      include: {
+    const ownership = await db.query.ownerships.findFirst({
+      where: eq(ownerships.id, ownershipId),
+      with: {
         auctionItem: {
-          include: { team: true },
+          with: { team: true },
         },
       },
     });
@@ -141,11 +140,8 @@ marketRouter.post('/listings', validate(createListingSchema), async (req, res, n
     }
 
     // Check percentage available
-    const existingListings = await prisma.listing.findMany({
-      where: {
-        ownershipId,
-        status: 'ACTIVE',
-      },
+    const existingListings = await db.query.listings.findMany({
+      where: and(eq(listings.ownershipId, ownershipId), eq(listings.status, 'ACTIVE')),
     });
 
     const listedPercentage = existingListings.reduce(
@@ -161,29 +157,33 @@ marketRouter.post('/listings', validate(createListingSchema), async (req, res, n
       );
     }
 
-    const listing = await prisma.listing.create({
-      data: {
+    const [listing] = await db.insert(listings)
+      .values({
         ownershipId,
         sellerId: req.user!.id,
-        percentageForSale,
-        askingPrice,
+        percentageForSale: String(percentageForSale),
+        askingPrice: String(askingPrice),
         acceptingOffers,
         expiresAt: expiresInDays
           ? new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000)
           : null,
-      },
-      include: {
+      })
+      .returning();
+
+    const createdListing = await db.query.listings.findFirst({
+      where: eq(listings.id, listing.id),
+      with: {
         ownership: {
-          include: {
+          with: {
             auctionItem: {
-              include: { team: true },
+              with: { team: true },
             },
           },
         },
       },
     });
 
-    res.status(201).json(listing);
+    res.status(201).json(createdListing);
   } catch (error) {
     next(error);
   }
@@ -194,8 +194,8 @@ marketRouter.delete('/listings/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const listing = await prisma.listing.findUnique({
-      where: { id },
+    const listing = await db.query.listings.findFirst({
+      where: eq(listings.id, id),
     });
 
     if (!listing) {
@@ -210,16 +210,14 @@ marketRouter.delete('/listings/:id', async (req, res, next) => {
       throw new AppError(400, 'Listing is not active', 'NOT_ACTIVE');
     }
 
-    await prisma.listing.update({
-      where: { id },
-      data: { status: 'CANCELLED' },
-    });
+    await db.update(listings)
+      .set({ status: 'CANCELLED' })
+      .where(eq(listings.id, id));
 
     // Cancel all pending offers
-    await prisma.offer.updateMany({
-      where: { listingId: id, status: 'PENDING' },
-      data: { status: 'CANCELLED' },
-    });
+    await db.update(offers)
+      .set({ status: 'CANCELLED' })
+      .where(and(eq(offers.listingId, id), eq(offers.status, 'PENDING')));
 
     res.json({ message: 'Listing cancelled' });
   } catch (error) {
@@ -232,14 +230,14 @@ marketRouter.post('/listings/:id/buy', async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const listing = await prisma.listing.findUnique({
-      where: { id },
-      include: {
+    const listing = await db.query.listings.findFirst({
+      where: eq(listings.id, id),
+      with: {
         seller: true,
         ownership: {
-          include: {
+          with: {
             auctionItem: {
-              include: { team: true, pool: true },
+              with: { team: true, pool: true },
             },
           },
         },
@@ -278,8 +276,8 @@ marketRouter.post('/offers', validate(createOfferSchema), async (req, res, next)
   try {
     const { listingId, amount } = req.body;
 
-    const listing = await prisma.listing.findUnique({
-      where: { id: listingId },
+    const listing = await db.query.listings.findFirst({
+      where: eq(listings.id, listingId),
     });
 
     if (!listing) {
@@ -299,35 +297,35 @@ marketRouter.post('/offers', validate(createOfferSchema), async (req, res, next)
     }
 
     // Check for existing pending offer from this user
-    const existingOffer = await prisma.offer.findFirst({
-      where: {
-        listingId,
-        buyerId: req.user!.id,
-        status: 'PENDING',
-      },
+    const existingOffer = await db.query.offers.findFirst({
+      where: and(
+        eq(offers.listingId, listingId),
+        eq(offers.buyerId, req.user!.id),
+        eq(offers.status, 'PENDING')
+      ),
     });
 
     if (existingOffer) {
       // Update existing offer
-      const offer = await prisma.offer.update({
-        where: { id: existingOffer.id },
-        data: {
-          amount,
+      const [offer] = await db.update(offers)
+        .set({
+          amount: String(amount),
           expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
-        },
-      });
+        })
+        .where(eq(offers.id, existingOffer.id))
+        .returning();
       res.json(offer);
       return;
     }
 
-    const offer = await prisma.offer.create({
-      data: {
+    const [offer] = await db.insert(offers)
+      .values({
         listingId,
         buyerId: req.user!.id,
-        amount,
+        amount: String(amount),
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
-      },
-    });
+      })
+      .returning();
 
     res.status(201).json(offer);
   } catch (error) {
@@ -338,20 +336,20 @@ marketRouter.post('/offers', validate(createOfferSchema), async (req, res, next)
 // Get my offers
 marketRouter.get('/my-offers', async (req, res, next) => {
   try {
-    const offers = await prisma.offer.findMany({
-      where: { buyerId: req.user!.id },
-      include: {
+    const myOffers = await db.query.offers.findMany({
+      where: eq(offers.buyerId, req.user!.id),
+      with: {
         listing: {
-          include: {
+          with: {
             seller: {
-              select: { id: true, displayName: true, avatarUrl: true },
+              columns: { id: true, displayName: true, avatarUrl: true },
             },
             ownership: {
-              include: {
+              with: {
                 auctionItem: {
-                  include: {
+                  with: {
                     team: true,
-                    pool: { select: { id: true, name: true } },
+                    pool: { columns: { id: true, name: true } },
                   },
                 },
               },
@@ -359,10 +357,10 @@ marketRouter.get('/my-offers', async (req, res, next) => {
           },
         },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: desc(offers.createdAt),
     });
 
-    res.json(offers);
+    res.json(myOffers);
   } catch (error) {
     next(error);
   }
@@ -374,16 +372,16 @@ marketRouter.post('/offers/:id/respond', validate(respondToOfferSchema), async (
     const { id } = req.params;
     const { action } = req.body;
 
-    const offer = await prisma.offer.findUnique({
-      where: { id },
-      include: {
+    const offer = await db.query.offers.findFirst({
+      where: eq(offers.id, id),
+      with: {
         listing: {
-          include: {
+          with: {
             seller: true,
             ownership: {
-              include: {
+              with: {
                 auctionItem: {
-                  include: { team: true, pool: true },
+                  with: { team: true, pool: true },
                 },
               },
             },
@@ -405,10 +403,9 @@ marketRouter.post('/offers/:id/respond', validate(respondToOfferSchema), async (
     }
 
     if (action === 'reject') {
-      await prisma.offer.update({
-        where: { id },
-        data: { status: 'REJECTED' },
-      });
+      await db.update(offers)
+        .set({ status: 'REJECTED' })
+        .where(eq(offers.id, id));
       res.json({ message: 'Offer rejected' });
       return;
     }
@@ -423,20 +420,18 @@ marketRouter.post('/offers/:id/respond', validate(respondToOfferSchema), async (
     );
 
     // Mark offer as accepted
-    await prisma.offer.update({
-      where: { id },
-      data: { status: 'ACCEPTED' },
-    });
+    await db.update(offers)
+      .set({ status: 'ACCEPTED' })
+      .where(eq(offers.id, id));
 
     // Reject all other pending offers
-    await prisma.offer.updateMany({
-      where: {
-        listingId: offer.listingId,
-        id: { not: id },
-        status: 'PENDING',
-      },
-      data: { status: 'REJECTED' },
-    });
+    await db.update(offers)
+      .set({ status: 'REJECTED' })
+      .where(and(
+        eq(offers.listingId, offer.listingId),
+        ne(offers.id, id),
+        eq(offers.status, 'PENDING')
+      ));
 
     res.json(result);
   } catch (error) {
@@ -449,8 +444,8 @@ marketRouter.delete('/offers/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const offer = await prisma.offer.findUnique({
-      where: { id },
+    const offer = await db.query.offers.findFirst({
+      where: eq(offers.id, id),
     });
 
     if (!offer) {
@@ -465,10 +460,9 @@ marketRouter.delete('/offers/:id', async (req, res, next) => {
       throw new AppError(400, 'Offer is not pending', 'NOT_PENDING');
     }
 
-    await prisma.offer.update({
-      where: { id },
-      data: { status: 'CANCELLED' },
-    });
+    await db.update(offers)
+      .set({ status: 'CANCELLED' })
+      .where(eq(offers.id, id));
 
     res.json({ message: 'Offer cancelled' });
   } catch (error) {
@@ -479,19 +473,17 @@ marketRouter.delete('/offers/:id', async (req, res, next) => {
 // Get transaction history
 marketRouter.get('/transactions', async (req, res, next) => {
   try {
-    const transactions = await prisma.transaction.findMany({
-      where: {
-        OR: [{ buyerId: req.user!.id }, { sellerId: req.user!.id }],
-      },
-      include: {
+    const userTransactions = await db.query.transactions.findMany({
+      where: or(eq(transactions.buyerId, req.user!.id), eq(transactions.sellerId, req.user!.id)),
+      with: {
         listing: {
-          include: {
+          with: {
             ownership: {
-              include: {
+              with: {
                 auctionItem: {
-                  include: {
+                  with: {
                     team: true,
-                    pool: { select: { id: true, name: true } },
+                    pool: { columns: { id: true, name: true } },
                   },
                 },
               },
@@ -499,13 +491,12 @@ marketRouter.get('/transactions', async (req, res, next) => {
           },
         },
       },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
+      orderBy: desc(transactions.createdAt),
+      limit: 100,
     });
 
-    res.json(transactions);
+    res.json(userTransactions);
   } catch (error) {
     next(error);
   }
 });
-

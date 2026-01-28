@@ -11,7 +11,7 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
-    "@clerk/express": "^1.7.60",
+    "google-auth-library": "^9.14.0",
     "@cutta/db": "workspace:*",
     "@cutta/shared": "workspace:*",
     "bcryptjs": "^2.4.3",

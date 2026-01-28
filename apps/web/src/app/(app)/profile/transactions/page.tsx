@@ -341,9 +341,9 @@ export default function TransactionsPage() {
           </div>
         ) : (
           <div className="text-center py-12">
-            <TrendingUp className="w-12 h-12 text-dark-500 mx-auto mb-3" />
-            <p className="text-dark-400 mb-1">No transactions found</p>
-            <p className="text-sm text-dark-500">
+            <TrendingUp className="w-12 h-12 text-primary-400/40 mx-auto mb-3" />
+            <p className="text-text-secondary mb-1">No transactions found</p>
+            <p className="text-sm text-text-tertiary">
               Try adjusting your filters or date range
             </p>
           </div>
@@ -382,7 +382,7 @@ function SummaryCard({
         {icon}
       </div>
       {loading ? (
-        <div className="h-8 w-24 bg-dark-600 rounded animate-pulse" />
+        <div className="h-8 w-24 bg-primary-500/10 rounded animate-pulse" />
       ) : (
         <p className="stat-value">{value}</p>
       )}
@@ -544,4 +544,5 @@ function getTypeBadgeClass(type: string): string {
   };
   return classes[type] || '';
 }
+
 

@@ -224,9 +224,9 @@ export default function MyTeamsPage() {
       {/* Teams by Pool */}
       {Object.keys(ownershipsByPool).length === 0 ? (
         <div className="card text-center py-12">
-          <Trophy className="w-16 h-16 text-dark-600 mx-auto mb-4" />
+          <Trophy className="w-16 h-16 text-gold-400/40 mx-auto mb-4" />
           <h2 className="text-xl font-bold mb-2">No Teams Yet</h2>
-          <p className="text-dark-400">
+          <p className="text-text-secondary">
             Join a pool and win some auctions to start building your portfolio!
           </p>
         </div>
@@ -252,9 +252,9 @@ export default function MyTeamsPage() {
                   </div>
                 </div>
                 {expandedPools.has(pool.id) ? (
-                  <ChevronUp className="w-5 h-5 text-dark-400" />
+                  <ChevronUp className="w-5 h-5 text-primary-400/60" />
                 ) : (
-                  <ChevronDown className="w-5 h-5 text-dark-400" />
+                  <ChevronDown className="w-5 h-5 text-primary-400/60" />
                 )}
               </button>
 
@@ -479,11 +479,11 @@ export default function MyTeamsPage() {
 
                 {/* Price */}
                 <div>
-                  <label className="text-sm text-dark-400 mb-2 block">
+                  <label className="text-sm text-text-tertiary mb-2 block">
                     Asking Price
                   </label>
                   <div className="relative">
-                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-dark-400" />
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gold-400/60" />
                     <input
                       type="number"
                       value={listingForm.askingPrice}

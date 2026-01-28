@@ -1,13 +1,17 @@
-import { prisma, GameStatus, Sport } from '@cutta/db';
+import { db, eq, and, inArray, pools, tournaments, teams, games, payoutRules, auctionItems, ownerships, payoutLogs } from '@cutta/db';
 import { Server } from 'socket.io';
 import { processPayout } from './payments.js';
 import { syncNFLPlayoffScores, fetchNFLScoreboard, processESPNGame } from './espn-api.js';
+import { syncMarchMadnessScores } from './ncaa-api.js';
 
 // This integrates with ESPN API (free) for NFL and SportsData.io for other sports
 const SPORTS_API_BASE = process.env.SPORTS_DATA_API_URL || 'https://api.sportsdata.io';
 const SPORTS_API_KEY = process.env.SPORTS_DATA_API_KEY;
 const ESPN_POLL_INTERVAL = parseInt(process.env.ESPN_POLL_INTERVAL || '30000', 10);
 const ENABLE_LIVE_SCORES = process.env.ENABLE_LIVE_SCORES !== 'false';
+
+type Sport = 'NCAA_BASKETBALL' | 'GOLF' | 'NFL' | 'OTHER';
+type GameStatus = 'SCHEDULED' | 'IN_PROGRESS' | 'FINAL';
 
 interface GameUpdate {
   externalId: string;
@@ -40,16 +44,27 @@ export async function fetchLiveGames(tournamentExternalId: string): Promise<Game
       throw new Error(`API error: ${response.status}`);
     }
 
-    const games = await response.json();
+    const gamesData = await response.json() as Array<{
+      GameID: number;
+      HomeTeamScore: number | null;
+      AwayTeamScore: number | null;
+      Status: string;
+      HomeTeam: string;
+      AwayTeam: string;
+    }>;
 
     // Transform to our format
-    return games.map((game: any) => ({
-      externalId: game.GameID.toString(),
-      team1Score: game.HomeTeamScore || 0,
-      team2Score: game.AwayTeamScore || 0,
-      status: game.Status === 'Final' ? 'final' : game.Status === 'InProgress' ? 'in_progress' : 'scheduled',
-      winnerId: game.Status === 'Final' ? (game.HomeTeamScore > game.AwayTeamScore ? game.HomeTeam : game.AwayTeam) : undefined,
-    }));
+    return gamesData.map((game) => {
+      const homeScore = game.HomeTeamScore ?? 0;
+      const awayScore = game.AwayTeamScore ?? 0;
+      return {
+        externalId: game.GameID.toString(),
+        team1Score: homeScore,
+        team2Score: awayScore,
+        status: game.Status === 'Final' ? 'final' : game.Status === 'InProgress' ? 'in_progress' : 'scheduled',
+        winnerId: game.Status === 'Final' ? (homeScore > awayScore ? game.HomeTeam : game.AwayTeam) : undefined,
+      };
+    });
   } catch (error) {
     console.error('Error fetching live games:', error);
     return [];
@@ -63,18 +78,14 @@ export async function processGameUpdate(
   gameUpdate: GameUpdate,
   io: Server
 ): Promise<void> {
-  const game = await prisma.game.findUnique({
-    where: { externalId: gameUpdate.externalId },
-    include: {
+  const game = await db.query.games.findFirst({
+    where: eq(games.externalId, gameUpdate.externalId),
+    with: {
       team1: true,
       team2: true,
       tournament: {
-        include: {
-          pools: {
-            where: {
-              status: { in: ['IN_PROGRESS', 'LIVE'] },
-            },
-          },
+        with: {
+          pools: true,
         },
       },
     },
@@ -85,20 +96,22 @@ export async function processGameUpdate(
     return;
   }
 
+  // Filter pools that are active
+  const activePools = game.tournament.pools.filter(p => p.status === 'IN_PROGRESS' || p.status === 'LIVE');
+
   // Update game scores
-  await prisma.game.update({
-    where: { id: game.id },
-    data: {
+  await db.update(games)
+    .set({
       team1Score: gameUpdate.team1Score,
       team2Score: gameUpdate.team2Score,
       status: gameUpdate.status.toUpperCase() as GameStatus,
       ...(gameUpdate.status === 'in_progress' && !game.startedAt && { startedAt: new Date() }),
       ...(gameUpdate.status === 'final' && { completedAt: new Date() }),
-    },
-  });
+    })
+    .where(eq(games.id, game.id));
 
   // Broadcast game update to all pool rooms
-  for (const pool of game.tournament.pools) {
+  for (const pool of activePools) {
     io.to(`pool:${pool.id}`).emit('gameUpdate', {
       gameId: game.id,
       team1Score: gameUpdate.team1Score,
@@ -114,16 +127,15 @@ export async function processGameUpdate(
 
     if (loserId) {
       // Mark team as eliminated
-      await prisma.team.update({
-        where: { id: loserId },
-        data: {
+      await db.update(teams)
+        .set({
           isEliminated: true,
           eliminatedRound: game.round,
-        },
-      });
+        })
+        .where(eq(teams.id, loserId));
 
       // Broadcast elimination
-      for (const pool of game.tournament.pools) {
+      for (const pool of activePools) {
         io.to(`pool:${pool.id}`).emit('teamEliminated', {
           teamId: loserId,
           eliminatedRound: game.round,
@@ -147,23 +159,25 @@ async function processRoundPayouts(
   sport?: Sport
 ): Promise<void> {
   // Get all pools for this tournament
-  const pools = await prisma.pool.findMany({
-    where: {
-      tournamentId,
-      status: { in: ['IN_PROGRESS', 'LIVE'] },
-    },
-    include: {
+  const tournamentPools = await db.query.pools.findMany({
+    where: and(
+      eq(pools.tournamentId, tournamentId),
+      inArray(pools.status, ['IN_PROGRESS', 'LIVE'])
+    ),
+    with: {
       payoutRules: true,
       auctionItems: {
-        where: { teamId: winnerId },
-        include: {
+        with: {
           ownerships: true,
         },
       },
     },
   });
 
-  for (const pool of pools) {
+  for (const pool of tournamentPools) {
+    // Filter auction items for the winning team
+    const winningItems = pool.auctionItems.filter(item => item.teamId === winnerId);
+
     // Get applicable payout rules for this round
     const payoutTrigger = getRoundPayoutTrigger(round, sport);
     const rules = pool.payoutRules.filter((r) => r.trigger === payoutTrigger);
@@ -177,7 +191,7 @@ async function processRoundPayouts(
       const payoutAmount = (totalPot * Number(rule.percentage)) / 100;
 
       // Find ownership for the winning team
-      const auctionItem = pool.auctionItems[0];
+      const auctionItem = winningItems[0];
       if (!auctionItem) continue;
 
       for (const ownership of auctionItem.ownerships) {
@@ -203,7 +217,7 @@ async function processRoundPayouts(
  */
 function getRoundPayoutTrigger(round: number, sport?: Sport): string {
   // NFL Playoffs
-  if (sport === Sport.NFL) {
+  if (sport === 'NFL') {
     const nflTriggers: Record<number, string> = {
       1: 'WILD_CARD_WIN',
       2: 'DIVISIONAL_ROUND',
@@ -230,7 +244,7 @@ function getRoundPayoutTrigger(round: number, sport?: Sport): string {
  */
 function getRoundName(round: number, sport?: Sport): string {
   // NFL Playoffs
-  if (sport === Sport.NFL) {
+  if (sport === 'NFL') {
     const nflNames: Record<number, string> = {
       1: 'Wild Card',
       2: 'Divisional Round',
@@ -270,49 +284,59 @@ export function startGamePolling(io: Server, intervalMs?: number): NodeJS.Timeou
   return setInterval(async () => {
     try {
       // Get active tournaments
-      const tournaments = await prisma.tournament.findMany({
-        where: { status: 'IN_PROGRESS' },
+      const activeTournaments = await db.query.tournaments.findMany({
+        where: eq(tournaments.status, 'IN_PROGRESS'),
       });
 
-      for (const tournament of tournaments) {
+      for (const tournament of activeTournaments) {
+        let result: { processed: number; updated: number; errors: number } | null = null;
+        
         // Use ESPN for NFL tournaments
-        if (tournament.sport === Sport.NFL) {
+        if (tournament.sport === 'NFL') {
           console.log(`Polling ESPN for NFL tournament: ${tournament.name}`);
-          const result = await syncNFLPlayoffScores();
-          
-          if (result.updated > 0) {
-            console.log(`ESPN sync: ${result.updated} games updated`);
-            
-            // Check for completed games and process payouts
-            const completedGames = await prisma.game.findMany({
-              where: {
-                tournamentId: tournament.id,
-                status: 'FINAL',
-                winnerId: { not: null },
-              },
-              include: {
-                tournament: true,
-              },
-            });
-            
-            for (const game of completedGames) {
-              // Check if payout was already processed
-              const existingPayout = await prisma.payoutLog.findFirst({
-                where: {
-                  gameId: game.id,
-                },
-              });
-              
-              if (!existingPayout && game.winnerId) {
-                await processRoundPayoutsForGame(game, io);
-              }
-            }
-          }
-        } else if (tournament.externalId) {
-          // Use SportsData.io for other sports
+          result = await syncNFLPlayoffScores();
+        } 
+        // Use ESPN for NCAA Basketball (March Madness)
+        else if (tournament.sport === 'NCAA_BASKETBALL') {
+          console.log(`Polling ESPN for NCAA tournament: ${tournament.name}`);
+          result = await syncMarchMadnessScores();
+        }
+        // Use SportsData.io for other sports with external IDs
+        else if (tournament.externalId) {
           const updates = await fetchLiveGames(tournament.externalId);
           for (const update of updates) {
             await processGameUpdate(update, io);
+          }
+          continue; // Skip payout processing for SportsData.io (handled in processGameUpdate)
+        }
+        
+        // Process payouts for ESPN-synced games
+        if (result && result.updated > 0) {
+          console.log(`ESPN sync: ${result.updated} games updated for ${tournament.name}`);
+          
+          // Check for completed games and process payouts
+          const completedGames = await db.query.games.findMany({
+            where: and(
+              eq(games.tournamentId, tournament.id),
+              eq(games.status, 'FINAL')
+            ),
+            with: {
+              tournament: true,
+            },
+          });
+          
+          // Filter to games with winners
+          const gamesWithWinners = completedGames.filter(g => g.winnerId !== null);
+          
+          for (const game of gamesWithWinners) {
+            // Check if payout was already processed
+            const existingPayout = await db.query.payoutLogs.findFirst({
+              where: eq(payoutLogs.gameId, game.id),
+            });
+            
+            if (!existingPayout && game.winnerId) {
+              await processRoundPayoutsForGame(game, io);
+            }
           }
         }
       }
@@ -346,11 +370,9 @@ export async function processRoundPayoutsForGame(
   );
   
   // Log that payout was processed
-  await prisma.payoutLog.create({
-    data: {
-      gameId: game.id,
-      processedAt: new Date(),
-    },
+  await db.insert(payoutLogs).values({
+    gameId: game.id,
+    processedAt: new Date(),
   });
 }
 
@@ -364,9 +386,9 @@ export async function updateGameResult(
   isFinal: boolean,
   io: Server
 ): Promise<void> {
-  const game = await prisma.game.findUnique({
-    where: { id: gameId },
-    include: {
+  const game = await db.query.games.findFirst({
+    where: eq(games.id, gameId),
+    with: {
       team1: true,
       team2: true,
     },
@@ -383,17 +405,16 @@ export async function updateGameResult(
       : game.team2Id
     : null;
 
-  await prisma.game.update({
-    where: { id: gameId },
-    data: {
+  await db.update(games)
+    .set({
       team1Score,
       team2Score,
       status,
       winnerId,
       ...(status === 'IN_PROGRESS' && !game.startedAt && { startedAt: new Date() }),
       ...(status === 'FINAL' && { completedAt: new Date() }),
-    },
-  });
+    })
+    .where(eq(games.id, gameId));
 
   if (game.externalId) {
     await processGameUpdate(
@@ -408,4 +429,3 @@ export async function updateGameResult(
     );
   }
 }
-

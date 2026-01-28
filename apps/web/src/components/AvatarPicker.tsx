@@ -7,11 +7,11 @@ import { usePresetAvatars } from '@/lib/hooks';
 
 interface AvatarPickerProps {
   currentAvatarUrl: string | null;
-  currentAvatarType: 'CUSTOM' | 'PRESET' | 'CLERK';
+  currentAvatarType: 'CUSTOM' | 'PRESET' | 'GOOGLE';
   currentPresetAvatarId: string | null;
   onSelect: (selection: {
     avatarUrl: string | null;
-    avatarType: 'CUSTOM' | 'PRESET' | 'CLERK';
+    avatarType: 'CUSTOM' | 'PRESET' | 'GOOGLE';
     presetAvatarId: string | null;
   }) => void;
   onClose: () => void;
@@ -235,7 +235,7 @@ export function AvatarPicker({
                 className={`relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
                   isDragging
                     ? 'border-primary-500 bg-primary-500/10'
-                    : 'border-dark-500 hover:border-dark-400'
+                    : 'border-primary-400/30 hover:border-primary-400/50'
                 }`}
               >
                 <input
@@ -258,19 +258,19 @@ export function AvatarPicker({
                         className="w-full h-full object-cover"
                       />
                     </div>
-                    <p className="text-sm text-dark-300">
+                    <p className="text-sm text-text-secondary">
                       Click or drag to replace
                     </p>
                   </div>
                 ) : (
                   <>
-                    <div className="w-16 h-16 mx-auto rounded-xl bg-dark-600 flex items-center justify-center mb-4">
-                      <ImageIcon className="w-8 h-8 text-dark-400" />
+                    <div className="w-16 h-16 mx-auto rounded-xl bg-primary-500/10 border border-primary-500/20 flex items-center justify-center mb-4">
+                      <ImageIcon className="w-8 h-8 text-primary-400/50" />
                     </div>
                     <p className="text-white font-medium mb-1">
                       Drop your image here
                     </p>
-                    <p className="text-sm text-dark-400">
+                    <p className="text-sm text-text-tertiary">
                       or click to browse (max 5MB)
                     </p>
                   </>
@@ -289,8 +289,8 @@ export function AvatarPicker({
       <div className="p-4 border-t border-white/10 bg-dark-800/50">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="text-sm text-dark-400">Preview:</span>
-            <div className="w-12 h-12 rounded-xl overflow-hidden bg-dark-600">
+            <span className="text-sm text-text-tertiary">Preview:</span>
+            <div className="w-12 h-12 rounded-xl overflow-hidden bg-primary-500/10 border border-primary-500/20">
               {getCurrentSelection() ? (
                 <img
                   src={getCurrentSelection()!}
@@ -298,7 +298,7 @@ export function AvatarPicker({
                   className="w-full h-full object-cover"
                 />
               ) : (
-                <div className="w-full h-full flex items-center justify-center text-dark-400">
+                <div className="w-full h-full flex items-center justify-center text-primary-400/50">
                   <ImageIcon className="w-5 h-5" />
                 </div>
               )}
@@ -323,4 +323,5 @@ export function AvatarPicker({
     </div>
   );
 }
+
 

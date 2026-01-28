@@ -1,8 +1,7 @@
 import { Server as HttpServer } from 'http';
 import { Server, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
-import { verifyToken } from '@clerk/express';
-import { prisma } from '@cutta/db';
+import { db, eq, and, users, poolMembers, chatMessages } from '@cutta/db';
 import { config } from '../config/index.js';
 import type { ClientToServerEvents, ServerToClientEvents, SocketData } from '@cutta/shared';
 import { processAuctionBid } from '../services/auction.js';
@@ -26,68 +25,19 @@ export function initializeSocket(httpServer: HttpServer): Server {
 
       let userId: string | null = null;
 
-      // Try Clerk token verification first
-      if (process.env.CLERK_SECRET_KEY) {
-        try {
-          const verified = await verifyToken(token, {
-            secretKey: process.env.CLERK_SECRET_KEY,
-          });
+      // Verify JWT token
+      try {
+        const decoded = jwt.verify(token, config.jwtSecret) as { userId: string };
+        const user = await db.query.users.findFirst({
+          where: eq(users.id, decoded.userId),
+          columns: { id: true, displayName: true },
+        });
 
-          if (verified && verified.sub) {
-            // Find user by Clerk ID
-            const user = await prisma.user.findFirst({
-              where: { clerkId: verified.sub },
-              select: { id: true, displayName: true },
-            });
-
-            if (user) {
-              userId = user.id;
-            }
-          }
-        } catch (clerkError) {
-          console.log('Socket: Clerk token verification failed, trying legacy JWT');
+        if (user) {
+          userId = user.id;
         }
-      }
-
-      // Development mode: decode Clerk JWT without verification (keyless mode)
-      if (!userId && config.nodeEnv === 'development' && !process.env.CLERK_SECRET_KEY) {
-        try {
-          const parts = token.split('.');
-          if (parts.length === 3) {
-            const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
-            const clerkId = payload.sub;
-
-            if (clerkId) {
-              const user = await prisma.user.findFirst({
-                where: { clerkId },
-                select: { id: true, displayName: true },
-              });
-
-              if (user) {
-                userId = user.id;
-              }
-            }
-          }
-        } catch (devError) {
-          console.log('Socket: Failed to decode Clerk keyless token');
-        }
-      }
-
-      // Fall back to legacy JWT verification
-      if (!userId) {
-        try {
-          const decoded = jwt.verify(token, config.jwtSecret) as { userId: string };
-          const user = await prisma.user.findUnique({
-            where: { id: decoded.userId },
-            select: { id: true, displayName: true },
-          });
-
-          if (user) {
-            userId = user.id;
-          }
-        } catch (jwtError) {
-          // JWT verification also failed
-        }
+      } catch (jwtError) {
+        // JWT verification failed
       }
 
       if (!userId) {
@@ -110,8 +60,8 @@ export function initializeSocket(httpServer: HttpServer): Server {
     // Join pool room
     socket.on('joinPool', async (poolId: string) => {
       // Verify membership
-      const membership = await prisma.poolMember.findUnique({
-        where: { poolId_userId: { poolId, userId: socket.data.userId } },
+      const membership = await db.query.poolMembers.findFirst({
+        where: and(eq(poolMembers.poolId, poolId), eq(poolMembers.userId, socket.data.userId)),
       });
 
       if (!membership) {
@@ -130,9 +80,9 @@ export function initializeSocket(httpServer: HttpServer): Server {
       socket.data.poolId = poolId;
 
       // Get user info
-      const user = await prisma.user.findUnique({
-        where: { id: socket.data.userId },
-        select: { displayName: true },
+      const user = await db.query.users.findFirst({
+        where: eq(users.id, socket.data.userId),
+        columns: { displayName: true },
       });
 
       // Notify others
@@ -182,36 +132,35 @@ export function initializeSocket(httpServer: HttpServer): Server {
       }
 
       // Check if user is muted
-      const member = await prisma.poolMember.findUnique({
-        where: { poolId_userId: { poolId, userId: socket.data.userId } },
+      const member = await db.query.poolMembers.findFirst({
+        where: and(eq(poolMembers.poolId, poolId), eq(poolMembers.userId, socket.data.userId)),
       });
 
       if (member?.isMuted) {
         // Check if mute has expired
         if (member.mutedUntil && new Date() > member.mutedUntil) {
           // Unmute the user
-          await prisma.poolMember.update({
-            where: { poolId_userId: { poolId, userId: socket.data.userId } },
-            data: { isMuted: false, mutedUntil: null },
-          });
+          await db.update(poolMembers)
+            .set({ isMuted: false, mutedUntil: null })
+            .where(and(eq(poolMembers.poolId, poolId), eq(poolMembers.userId, socket.data.userId)));
         } else {
           socket.emit('error', { message: 'You are muted in this chat', code: 'USER_MUTED' });
           return;
         }
       }
 
-      const user = await prisma.user.findUnique({
-        where: { id: socket.data.userId },
-        select: { displayName: true, avatarUrl: true },
+      const user = await db.query.users.findFirst({
+        where: eq(users.id, socket.data.userId),
+        columns: { displayName: true, avatarUrl: true },
       });
 
-      const message = await prisma.chatMessage.create({
-        data: {
+      const [message] = await db.insert(chatMessages)
+        .values({
           poolId,
           userId: socket.data.userId,
           content,
-        },
-      });
+        })
+        .returning();
 
       io.to(`pool:${poolId}`).emit('newMessage', {
         id: message.id,
@@ -229,8 +178,8 @@ export function initializeSocket(httpServer: HttpServer): Server {
 
     // Send reaction
     socket.on('sendReaction', async ({ messageId, emoji }) => {
-      const message = await prisma.chatMessage.findUnique({
-        where: { id: messageId },
+      const message = await db.query.chatMessages.findFirst({
+        where: eq(chatMessages.id, messageId),
       });
 
       if (!message || message.poolId !== socket.data.poolId) {
@@ -246,10 +195,9 @@ export function initializeSocket(httpServer: HttpServer): Server {
         reactions[emoji].push(socket.data.userId);
       }
 
-      await prisma.chatMessage.update({
-        where: { id: messageId },
-        data: { reactions },
-      });
+      await db.update(chatMessages)
+        .set({ reactions })
+        .where(eq(chatMessages.id, messageId));
 
       io.to(`pool:${message.poolId}`).emit('messageReaction', {
         messageId,
@@ -262,9 +210,9 @@ export function initializeSocket(httpServer: HttpServer): Server {
     socket.on('startTyping', async (poolId: string) => {
       if (socket.data.poolId !== poolId) return;
 
-      const user = await prisma.user.findUnique({
-        where: { id: socket.data.userId },
-        select: { displayName: true },
+      const user = await db.query.users.findFirst({
+        where: eq(users.id, socket.data.userId),
+        columns: { displayName: true },
       });
 
       socket.to(`pool:${poolId}`).emit('userTyping', {
@@ -297,4 +245,3 @@ export function initializeSocket(httpServer: HttpServer): Server {
 }
 
 export type SocketServer = ReturnType<typeof initializeSocket>;
-

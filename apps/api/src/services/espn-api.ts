@@ -5,9 +5,11 @@
  * These endpoints are publicly accessible and don't require authentication.
  */
 
-import { prisma, GameStatus, Sport } from '@cutta/db';
+import { db, eq, and, or, games, teams, tournaments } from '@cutta/db';
 
 const ESPN_BASE_URL = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl';
+
+type GameStatus = 'SCHEDULED' | 'IN_PROGRESS' | 'FINAL';
 
 export interface ESPNTeam {
   id: string;
@@ -83,7 +85,7 @@ export async function fetchNFLScoreboard(): Promise<ESPNGame[]> {
       throw new Error(`ESPN API error: ${response.status}`);
     }
     
-    const data: ESPNScoreboardResponse = await response.json();
+    const data = await response.json() as ESPNScoreboardResponse;
     return data.events || [];
   } catch (error) {
     console.error('Error fetching ESPN NFL scoreboard:', error);
@@ -102,7 +104,7 @@ export async function fetchGameDetails(espnGameId: string): Promise<ESPNGame | n
       throw new Error(`ESPN API error: ${response.status}`);
     }
     
-    const data = await response.json();
+    const data = await response.json() as { header?: { competitions?: ESPNGame[] } };
     return data.header?.competitions?.[0] || null;
   } catch (error) {
     console.error(`Error fetching ESPN game ${espnGameId}:`, error);
@@ -158,11 +160,8 @@ export async function findTeamByESPNAbbreviation(
 ): Promise<string | null> {
   const ourAbbr = ESPN_TEAM_MAPPING[espnAbbr] || espnAbbr;
   
-  const team = await prisma.team.findFirst({
-    where: {
-      tournamentId,
-      shortName: ourAbbr,
-    },
+  const team = await db.query.teams.findFirst({
+    where: and(eq(teams.tournamentId, tournamentId), eq(teams.shortName, ourAbbr)),
   });
   
   return team?.id || null;
@@ -205,14 +204,14 @@ export async function processESPNGame(
   }
   
   // Find our game by the teams
-  const game = await prisma.game.findFirst({
-    where: {
-      tournamentId,
-      OR: [
-        { team1Id: homeTeamId, team2Id: awayTeamId },
-        { team1Id: awayTeamId, team2Id: homeTeamId },
-      ],
-    },
+  const game = await db.query.games.findFirst({
+    where: and(
+      eq(games.tournamentId, tournamentId),
+      or(
+        and(eq(games.team1Id, homeTeamId), eq(games.team2Id, awayTeamId)),
+        and(eq(games.team1Id, awayTeamId), eq(games.team2Id, homeTeamId))
+      )
+    ),
   });
   
   if (!game) {
@@ -251,9 +250,8 @@ export async function processESPNGame(
   const team2Score = isTeam1Home ? awayScore : homeScore;
   
   // Update the game
-  await prisma.game.update({
-    where: { id: game.id },
-    data: {
+  await db.update(games)
+    .set({
       team1Score,
       team2Score,
       status: newStatus,
@@ -262,8 +260,8 @@ export async function processESPNGame(
       ...(newStatus === 'FINAL' && !game.completedAt && { completedAt: new Date() }),
       // Store ESPN game ID for future reference
       externalId: game.externalId || `espn-${espnGame.id}`,
-    },
-  });
+    })
+    .where(eq(games.id, game.id));
   
   console.log(`Updated game ${game.id}: ${team1Score}-${team2Score} (${newStatus})`);
   
@@ -293,11 +291,8 @@ export async function syncNFLPlayoffScores(): Promise<{
   
   try {
     // Find active NFL tournament
-    const tournament = await prisma.tournament.findFirst({
-      where: {
-        sport: Sport.NFL,
-        status: 'IN_PROGRESS',
-      },
+    const tournament = await db.query.tournaments.findFirst({
+      where: and(eq(tournaments.sport, 'NFL'), eq(tournaments.status, 'IN_PROGRESS')),
     });
     
     if (!tournament) {
@@ -357,4 +352,3 @@ export async function fetchNFLPlayoffBracket(): Promise<any> {
     return null;
   }
 }
-

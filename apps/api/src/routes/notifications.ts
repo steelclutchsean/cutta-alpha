@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { prisma } from '@cutta/db';
+import { db, eq, and, desc, count, notifications } from '@cutta/db';
 import { authenticate } from '../middleware/auth.js';
-import { getUnreadNotifications, markNotificationsAsRead } from '../services/notifications.js';
+import { markNotificationsAsRead } from '../services/notifications.js';
 
 export const notificationsRouter = Router();
 
@@ -13,25 +13,24 @@ notificationsRouter.get('/', async (req, res, next) => {
   try {
     const { unreadOnly } = req.query;
 
-    const notifications = await prisma.notification.findMany({
-      where: {
-        userId: req.user!.id,
-        ...(unreadOnly === 'true' && { read: false }),
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
+    const conditions = [eq(notifications.userId, req.user!.id)];
+    if (unreadOnly === 'true') {
+      conditions.push(eq(notifications.read, false));
+    }
+
+    const userNotifications = await db.query.notifications.findMany({
+      where: and(...conditions),
+      orderBy: desc(notifications.createdAt),
+      limit: 50,
     });
 
-    const unreadCount = await prisma.notification.count({
-      where: {
-        userId: req.user!.id,
-        read: false,
-      },
-    });
+    const [unreadCountResult] = await db.select({ count: count() })
+      .from(notifications)
+      .where(and(eq(notifications.userId, req.user!.id), eq(notifications.read, false)));
 
     res.json({
-      notifications,
-      unreadCount,
+      notifications: userNotifications,
+      unreadCount: unreadCountResult?.count || 0,
     });
   } catch (error) {
     next(error);
@@ -61,4 +60,3 @@ notificationsRouter.post('/read-all', async (req, res, next) => {
     next(error);
   }
 });
-

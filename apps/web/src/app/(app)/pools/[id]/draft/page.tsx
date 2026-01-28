@@ -32,6 +32,7 @@ import { auctionApi, livekitApi } from '@/lib/api';
 import WheelSpin from '@/components/WheelSpin';
 import LiveStream from '@/components/LiveStream';
 import TeamLogo from '@/components/TeamLogo';
+import CommissionerControls from '@/components/CommissionerControls';
 
 export default function DraftRoomPage() {
   const params = useParams();
@@ -271,17 +272,17 @@ export default function DraftRoomPage() {
 
   if (!pool || !auctionState) {
     return (
-      <div className="fixed inset-0 bg-dark-900 flex items-center justify-center">
+      <div className="fixed inset-0 bg-bg-primary flex items-center justify-center">
         <div className="glass-panel text-center p-8">
           <div className="w-8 h-8 border-2 border-primary-500/30 border-t-primary-500 rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-dark-400">Loading draft room...</p>
+          <p className="text-text-tertiary">Loading draft room...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="fixed inset-0 bg-dark-900 flex flex-col lg:flex-row">
+    <div className="fixed inset-0 bg-bg-primary flex flex-col lg:flex-row">
       {/* Liquid Background */}
       <div className="liquid-bg" />
       
@@ -298,8 +299,8 @@ export default function DraftRoomPage() {
               <ArrowLeft className="w-5 h-5" />
             </button>
             <div>
-              <h1 className="font-bold text-white">{pool.name}</h1>
-              <p className="text-sm text-dark-400">
+              <h1 className="font-bold text-text-primary">{pool.name}</h1>
+              <p className="text-sm text-text-tertiary">
                 {auctionState.completedItems.length} / {(auctionState.completedItems.length + (auctionState.nextItems.length || 0) + (currentItem ? 1 : 0))} teams sold
               </p>
             </div>
@@ -339,7 +340,7 @@ export default function DraftRoomPage() {
         {/* Video/Stream Area */}
         <div className="relative aspect-video max-h-[40vh] flex items-center justify-center overflow-hidden">
           {/* Gradient overlay */}
-          <div className="absolute inset-0 bg-gradient-to-b from-dark-900/50 to-transparent pointer-events-none z-10" />
+          <div className="absolute inset-0 bg-gradient-to-b from-bg-primary/50 to-transparent pointer-events-none z-10" />
           
           {pool.streamEnabled ? (
             <LiveStream
@@ -351,28 +352,37 @@ export default function DraftRoomPage() {
             />
           ) : (
             <div className="text-center">
-              <div className="w-20 h-20 rounded-2xl bg-white/5 flex items-center justify-center mx-auto mb-4">
-                <Video className="w-10 h-10 text-dark-600" />
+              <div className="w-20 h-20 rounded-2xl bg-accent-blue/5 flex items-center justify-center mx-auto mb-4">
+                <Video className="w-10 h-10 text-text-quaternary" />
               </div>
-              <p className="text-dark-400 mb-4">Streaming not enabled</p>
+              <p className="text-text-tertiary mb-4">Streaming not enabled</p>
               {isCommissioner && (
-                <button
-                  onClick={handleEnableStreaming}
-                  disabled={isEnablingStream}
-                  className="glass-btn-gold"
-                >
-                  {isEnablingStream ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Enabling...
-                    </>
-                  ) : (
-                    <>
-                      <Video className="w-4 h-4" />
-                      Enable Streaming & Go Live
-                    </>
-                  )}
-                </button>
+                <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                  <button
+                    onClick={handleEnableStreaming}
+                    disabled={isEnablingStream}
+                    className="glass-btn-gold"
+                  >
+                    {isEnablingStream ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Enabling...
+                      </>
+                    ) : (
+                      <>
+                        <Video className="w-4 h-4" />
+                        Enable Streaming
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => router.push(`/pools/${poolId}/studio`)}
+                    className="glass-btn-primary"
+                  >
+                    <Radio className="w-4 h-4" />
+                    Open Studio
+                  </button>
+                </div>
               )}
             </div>
           )}
@@ -389,8 +399,8 @@ export default function DraftRoomPage() {
                     ? '!bg-red-500/20 !border-red-500/30 animate-pulse'
                     : ''
                 }`}>
-                  <Timer className={`w-6 h-6 ${auctionState.timeRemaining <= 5 ? 'text-red-400' : 'text-primary-400'}`} />
-                  <span className={`text-4xl font-mono font-bold ${auctionState.timeRemaining <= 5 ? 'text-red-400' : 'text-white'}`}>
+                  <Timer className={`w-6 h-6 ${auctionState.timeRemaining <= 5 ? 'text-red-400' : 'text-accent-blue'}`} />
+                  <span className={`text-4xl font-mono font-bold ${auctionState.timeRemaining <= 5 ? 'text-red-400' : 'text-text-primary'}`}>
                     {formatTimeRemaining(auctionState.timeRemaining)}
                   </span>
                 </div>
@@ -413,25 +423,25 @@ export default function DraftRoomPage() {
                     className="w-24 h-24"
                   />
                 </div>
-                <h2 className="text-3xl font-bold mb-2 text-white">{currentItem.team.name}</h2>
+                <h2 className="text-3xl font-bold mb-2 text-text-primary">{currentItem.team.name}</h2>
                 <div className="flex items-center justify-center gap-2">
                   {currentItem.team.seed && (
-                    <span className="text-sm bg-white/10 px-2.5 py-1 rounded-lg text-dark-300">
+                    <span className="text-sm bg-accent-blue/10 px-2.5 py-1 rounded-lg text-text-secondary">
                       #{currentItem.team.seed}
                     </span>
                   )}
-                  <span className="text-dark-400">{currentItem.team.region} {isWheelSpinMode ? 'Conference' : 'Region'}</span>
+                  <span className="text-text-tertiary">{currentItem.team.region} {isWheelSpinMode ? 'Conference' : 'Region'}</span>
                 </div>
 
                 {currentItem.currentBid && (
-                  <div className="mt-6 pt-6 border-t border-white/5">
-                    <p className="text-sm text-dark-400 mb-1">Current Bid</p>
-                    <p className="text-4xl font-bold text-gold-400">
+                  <div className="mt-6 pt-6 border-t border-glass-border">
+                    <p className="text-sm text-text-tertiary mb-1">Current Bid</p>
+                    <p className="text-4xl font-bold text-accent-gold">
                       {formatCurrency(currentItem.currentBid)}
                     </p>
                     {currentItem.currentBidder && (
-                      <p className="text-sm text-dark-400 mt-2">
-                        by <span className="text-white">{currentItem.currentBidder.displayName}</span>
+                      <p className="text-sm text-text-tertiary mt-2">
+                        by <span className="text-text-primary">{currentItem.currentBidder.displayName}</span>
                       </p>
                     )}
                   </div>
@@ -439,7 +449,7 @@ export default function DraftRoomPage() {
 
                 {/* Matchup Brief Toggle */}
                 {matchupBrief && (
-                  <div className="mt-6 pt-6 border-t border-white/5">
+                  <div className="mt-6 pt-6 border-t border-glass-border">
                     <button
                       onClick={() => setShowMatchupBrief(!showMatchupBrief)}
                       className="glass-btn text-sm mx-auto"
@@ -455,7 +465,7 @@ export default function DraftRoomPage() {
                           exit={{ opacity: 0, height: 0 }}
                           className="mt-4 text-left"
                         >
-                          <p className="text-sm text-dark-300 leading-relaxed">
+                          <p className="text-sm text-text-secondary leading-relaxed">
                             {matchupBrief}
                           </p>
                         </motion.div>
@@ -483,7 +493,7 @@ export default function DraftRoomPage() {
                 {/* Custom Bid */}
                 <div className="flex gap-2">
                   <div className="relative flex-1">
-                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-dark-400" />
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-tertiary" />
                     <input
                       type="number"
                       value={bidAmount}
@@ -507,12 +517,12 @@ export default function DraftRoomPage() {
             <div className="flex flex-col items-center justify-center h-full text-center">
               {auctionState.status === 'completed' ? (
                 <div className="glass-panel max-w-md">
-                  <div className="w-20 h-20 rounded-2xl bg-gold-500/10 flex items-center justify-center mx-auto mb-6">
-                    <Trophy className="w-10 h-10 text-gold-500/50" />
+                  <div className="w-20 h-20 rounded-2xl bg-accent-gold/10 flex items-center justify-center mx-auto mb-6">
+                    <Trophy className="w-10 h-10 text-accent-gold/50" />
                   </div>
-                  <h2 className="text-2xl font-bold mb-2 text-white">Auction Complete!</h2>
-                  <p className="text-dark-400">
-                    Total raised: <span className="text-gold-400 font-bold">{formatCurrency(auctionState.totalRaised)}</span>
+                  <h2 className="text-2xl font-bold mb-2 text-text-primary">Auction Complete!</h2>
+                  <p className="text-text-tertiary">
+                    Total raised: <span className="text-accent-gold font-bold">{formatCurrency(auctionState.totalRaised)}</span>
                   </p>
                 </div>
               ) : isWheelSpinMode && wheelSpinTeams.length >= 1 ? (
@@ -527,15 +537,15 @@ export default function DraftRoomPage() {
                   />
                   {!isSpinning && (
                     <div className="mt-6 text-center">
-                      <p className="text-dark-400 mb-2">
+                      <p className="text-text-tertiary mb-2">
                         {wheelSpinTeams.length} {wheelSpinTeams.length === 1 ? 'team' : 'teams'} remaining
                       </p>
-                      <div className="flex items-center justify-center gap-2 text-gold-400">
+                      <div className="flex items-center justify-center gap-2 text-accent-gold">
                         <Sparkles className="w-5 h-5" />
                         <span className="text-sm font-medium">Wheel Spin Mode</span>
                       </div>
                       {isCommissioner && wheelSpinTeams.length >= 1 && (
-                        <p className="mt-2 text-sm text-dark-500">
+                        <p className="mt-2 text-sm text-text-quaternary">
                           Click "Spin Wheel" below to select the next team
                         </p>
                       )}
@@ -544,40 +554,40 @@ export default function DraftRoomPage() {
                 </div>
               ) : isWheelSpinMode && wheelTeamsLoading ? (
                 <div className="glass-panel max-w-md">
-                  <div className="w-20 h-20 rounded-2xl bg-white/5 flex items-center justify-center mx-auto mb-6">
-                    <Loader2 className="w-10 h-10 text-primary-400 animate-spin" />
+                  <div className="w-20 h-20 rounded-2xl bg-accent-blue/5 flex items-center justify-center mx-auto mb-6">
+                    <Loader2 className="w-10 h-10 text-accent-blue animate-spin" />
                   </div>
-                  <h2 className="text-2xl font-bold mb-2 text-white">Loading Teams</h2>
-                  <p className="text-dark-400">Preparing wheel spin...</p>
+                  <h2 className="text-2xl font-bold mb-2 text-text-primary">Loading Teams</h2>
+                  <p className="text-text-tertiary">Preparing wheel spin...</p>
                 </div>
               ) : isWheelSpinMode && wheelSpinTeams.length === 0 ? (
                 <div className="glass-panel max-w-md">
-                  <div className="w-20 h-20 rounded-2xl bg-gold-500/10 flex items-center justify-center mx-auto mb-6">
-                    <Trophy className="w-10 h-10 text-gold-500/50" />
+                  <div className="w-20 h-20 rounded-2xl bg-accent-gold/10 flex items-center justify-center mx-auto mb-6">
+                    <Trophy className="w-10 h-10 text-accent-gold/50" />
                   </div>
-                  <h2 className="text-2xl font-bold mb-2 text-white">
+                  <h2 className="text-2xl font-bold mb-2 text-text-primary">
                     {auctionState.status === 'not_started' ? 'Waiting for Wheel Spin' : 'All Teams Assigned!'}
                   </h2>
-                  <p className="text-dark-400">
+                  <p className="text-text-tertiary">
                     {auctionState.status === 'not_started' 
                       ? 'The commissioner will initialize the wheel spin to begin' 
                       : 'All teams have been auctioned off'
                     }
                   </p>
-                  <div className="mt-4 flex items-center justify-center gap-2 text-gold-400">
+                  <div className="mt-4 flex items-center justify-center gap-2 text-accent-gold">
                     <Sparkles className="w-5 h-5" />
                     <span className="text-sm font-medium">Wheel Spin Mode</span>
                   </div>
                 </div>
               ) : (
                 <div className="glass-panel max-w-md">
-                  <div className="w-20 h-20 rounded-2xl bg-gold-500/10 flex items-center justify-center mx-auto mb-6">
-                    <Trophy className="w-10 h-10 text-gold-500/50" />
+                  <div className="w-20 h-20 rounded-2xl bg-accent-gold/10 flex items-center justify-center mx-auto mb-6">
+                    <Trophy className="w-10 h-10 text-accent-gold/50" />
                   </div>
-                  <h2 className="text-2xl font-bold mb-2 text-white">
+                  <h2 className="text-2xl font-bold mb-2 text-text-primary">
                     Waiting for auction to start
                   </h2>
-                  <p className="text-dark-400">
+                  <p className="text-text-tertiary">
                     The commissioner will begin shortly
                   </p>
                 </div>
@@ -585,54 +595,16 @@ export default function DraftRoomPage() {
             </div>
           )}
 
-          {/* Commissioner Controls - Glass Style */}
-          {isCommissioner && (
-            <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 glass-panel !p-2 !rounded-2xl flex gap-2">
-              {auctionState.status === 'not_started' && !isWheelSpinMode && (
-                <button
-                  onClick={() => handleCommissionerAction('start')}
-                  className="glass-btn-gold"
-                >
-                  <Play className="w-4 h-4" />
-                  Start Auction
-                </button>
-              )}
-              {auctionState.status === 'not_started' && isWheelSpinMode && (
-                <button
-                  onClick={() => handleCommissionerAction('wheel-init')}
-                  className="glass-btn-gold"
-                >
-                  <Sparkles className="w-4 h-4" />
-                  Initialize Wheel Spin
-                </button>
-              )}
-              {isWheelSpinMode && !currentItem && !isSpinning && wheelSpinTeams.length > 0 && (
-                <button
-                  onClick={() => handleCommissionerAction('wheel-spin')}
-                  className="glass-btn-gold"
-                >
-                  <RotateCw className="w-4 h-4" />
-                  Spin Wheel ({wheelSpinTeams.length} teams)
-                </button>
-              )}
-              {auctionState.status === 'in_progress' && currentItem && (
-                <>
-                  <button
-                    onClick={() => handleCommissionerAction('pause')}
-                    className="glass-btn"
-                  >
-                    <Pause className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => handleCommissionerAction('next')}
-                    className="glass-btn-primary"
-                  >
-                    <SkipForward className="w-4 h-4" />
-                    {isWheelSpinMode ? 'Next Spin' : 'Next Team'}
-                  </button>
-                </>
-              )}
-            </div>
+          {/* Commissioner Controls - Draggable on Desktop, FAB on Mobile */}
+          {isCommissioner && auctionState && (
+            <CommissionerControls
+              status={auctionState.status}
+              isWheelSpinMode={isWheelSpinMode}
+              currentItem={currentItem}
+              isSpinning={isSpinning}
+              wheelSpinTeamsCount={wheelSpinTeams.length}
+              onAction={handleCommissionerAction}
+            />
           )}
         </div>
       </div>
@@ -647,10 +619,10 @@ export default function DraftRoomPage() {
             className="w-80 glass-sidebar flex flex-col relative z-10"
           >
             {/* Chat Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-glass-border">
               <div className="flex items-center gap-2">
-                <MessageCircle className="w-5 h-5 text-primary-400" />
-                <span className="font-semibold text-white">Chat</span>
+                <MessageCircle className="w-5 h-5 text-accent-blue" />
+                <span className="font-semibold text-text-primary">Chat</span>
               </div>
               <div className="glass-badge">
                 <Users className="w-3 h-3" />
@@ -662,26 +634,26 @@ export default function DraftRoomPage() {
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {messages.map((msg) => (
                 <div key={msg.id} className="flex gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-500 to-gold-500 flex-shrink-0 flex items-center justify-center text-dark-900 text-sm font-bold">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent-blue to-accent-gold flex-shrink-0 flex items-center justify-center text-white text-sm font-bold">
                     {msg.user.displayName[0].toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-baseline gap-2">
-                      <span className="font-medium text-sm text-white">{msg.user.displayName}</span>
-                      <span className="text-xs text-dark-500">
+                      <span className="font-medium text-sm text-text-primary">{msg.user.displayName}</span>
+                      <span className="text-xs text-text-quaternary">
                         {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </div>
-                    <p className="text-dark-300 text-sm break-words">{msg.content}</p>
+                    <p className="text-text-secondary text-sm break-words">{msg.content}</p>
                   </div>
                 </div>
               ))}
               {messages.length === 0 && (
                 <div className="text-center py-8">
-                  <div className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center mx-auto mb-3">
-                    <MessageCircle className="w-6 h-6 text-dark-500" />
+                  <div className="w-12 h-12 rounded-xl bg-accent-blue/5 flex items-center justify-center mx-auto mb-3">
+                    <MessageCircle className="w-6 h-6 text-text-quaternary" />
                   </div>
-                  <p className="text-dark-500 text-sm">
+                  <p className="text-text-quaternary text-sm">
                     No messages yet. Say hello!
                   </p>
                 </div>
@@ -690,11 +662,11 @@ export default function DraftRoomPage() {
 
             {/* Typing Indicator */}
             {typingUsers.length > 0 && (
-              <div className="px-4 py-2 text-xs text-dark-400 flex items-center gap-2">
+              <div className="px-4 py-2 text-xs text-text-tertiary flex items-center gap-2">
                 <span className="flex gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-primary-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-                  <span className="w-1.5 h-1.5 rounded-full bg-primary-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-                  <span className="w-1.5 h-1.5 rounded-full bg-primary-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-accent-blue animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-accent-blue animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-accent-blue animate-bounce" style={{ animationDelay: '300ms' }} />
                 </span>
                 {typingUsers.map((u) => u.displayName).join(', ')}{' '}
                 {typingUsers.length === 1 ? 'is' : 'are'} typing...
@@ -702,7 +674,7 @@ export default function DraftRoomPage() {
             )}
 
             {/* Chat Input - Glass Style */}
-            <form onSubmit={handleSendMessage} className="p-4 border-t border-white/5">
+            <form onSubmit={handleSendMessage} className="p-4 border-t border-glass-border">
               <div className="flex gap-2">
                 <input
                   type="text"

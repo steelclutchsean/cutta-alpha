@@ -1,159 +1,183 @@
-import { PrismaClient, Sport, TournamentStatus, PayoutTrigger, GameStatus } from '@prisma/client';
+import { db, eq, and, tournaments, teams, games } from '../src/index.js';
 import { NFL_TEAM_LOGOS } from './team-logos.js';
 
-const prisma = new PrismaClient();
-
-// 2026 NFL Playoff Teams (14 teams total)
+// 2024-25 NFL Playoff Teams (actual teams from January 2025 playoffs)
 const NFL_PLAYOFF_TEAMS = {
   AFC: [
     { seed: 1, name: 'Kansas City Chiefs', shortName: 'KC', hasBye: true },
-    { seed: 2, name: 'New England Patriots', shortName: 'NE', hasBye: false },
-    { seed: 3, name: 'Pittsburgh Steelers', shortName: 'PIT', hasBye: false },
+    { seed: 2, name: 'Buffalo Bills', shortName: 'BUF', hasBye: false },
+    { seed: 3, name: 'Baltimore Ravens', shortName: 'BAL', hasBye: false },
     { seed: 4, name: 'Houston Texans', shortName: 'HOU', hasBye: false },
-    { seed: 5, name: 'Buffalo Bills', shortName: 'BUF', hasBye: false },
-    { seed: 6, name: 'Jacksonville Jaguars', shortName: 'JAX', hasBye: false },
-    { seed: 7, name: 'Los Angeles Chargers', shortName: 'LAC', hasBye: false },
+    { seed: 5, name: 'Los Angeles Chargers', shortName: 'LAC', hasBye: false },
+    { seed: 6, name: 'Pittsburgh Steelers', shortName: 'PIT', hasBye: false },
+    { seed: 7, name: 'Denver Broncos', shortName: 'DEN', hasBye: false },
   ],
   NFC: [
     { seed: 1, name: 'Detroit Lions', shortName: 'DET', hasBye: true },
     { seed: 2, name: 'Philadelphia Eagles', shortName: 'PHI', hasBye: false },
-    { seed: 3, name: 'Carolina Panthers', shortName: 'CAR', hasBye: false },
-    { seed: 4, name: 'Chicago Bears', shortName: 'CHI', hasBye: false },
-    { seed: 5, name: 'Green Bay Packers', shortName: 'GB', hasBye: false },
-    { seed: 6, name: 'San Francisco 49ers', shortName: 'SF', hasBye: false },
-    { seed: 7, name: 'Los Angeles Rams', shortName: 'LAR', hasBye: false },
+    { seed: 3, name: 'Tampa Bay Buccaneers', shortName: 'TB', hasBye: false },
+    { seed: 4, name: 'Los Angeles Rams', shortName: 'LAR', hasBye: false },
+    { seed: 5, name: 'Minnesota Vikings', shortName: 'MIN', hasBye: false },
+    { seed: 6, name: 'Washington Commanders', shortName: 'WAS', hasBye: false },
+    { seed: 7, name: 'Green Bay Packers', shortName: 'GB', hasBye: false },
   ],
 };
 
-// Wild Card Weekend Matchups with 5-sentence briefs
+// Wild Card Weekend Matchups with 5-sentence briefs (2024-25 NFL Playoffs)
 const WILD_CARD_MATCHUPS = [
   {
-    awayTeam: 'Los Angeles Rams',
-    homeTeam: 'Carolina Panthers',
-    scheduledAt: new Date('2026-01-10T21:30:00Z'), // Sat 1:30 PM PST
+    awayTeam: 'Denver Broncos',
+    homeTeam: 'Buffalo Bills',
+    scheduledAt: new Date('2025-01-11T18:00:00Z'), // Sat 1:00 PM ET
     gameNumber: 1,
-    matchupBrief: `The Panthers are hosting their first playoff game since 2015, marking a significant milestone under owner David Tepper. Quarterback Bryce Young makes his postseason debut, aiming to prove he's the franchise cornerstone Carolina believed in when they traded up to draft him. The Rams enter as the 7-seed but carry championship experience from their 2022 Super Bowl victory. Matthew Stafford and Cooper Kupp hope to recapture their playoff magic against a young Panthers defense. This matchup pits veteran playoff savvy against youthful home-field energy in what promises to be a compelling Wild Card contest.`,
+    matchupBrief: `The Broncos return to the playoffs for the first time since their Super Bowl 50 victory, led by rookie quarterback Bo Nix who exceeded all expectations. Buffalo enters as the 2-seed with Josh Allen in MVP form, leading one of the most explosive offenses in the NFL. The Bills' home-field advantage at Highmark Stadium in January creates a hostile environment for any visiting team. Denver's young defense will be tested against a Bills offense that averaged over 30 points per game. This AFC showdown pits veteran playoff experience against youthful energy in what promises to be an exciting Wild Card battle.`,
   },
   {
-    awayTeam: 'Green Bay Packers',
-    homeTeam: 'Chicago Bears',
-    scheduledAt: new Date('2026-01-11T01:00:00Z'), // Sat 5:00 PM PST
+    awayTeam: 'Pittsburgh Steelers',
+    homeTeam: 'Baltimore Ravens',
+    scheduledAt: new Date('2025-01-11T21:00:00Z'), // Sat 4:30 PM ET
     gameNumber: 2,
-    matchupBrief: `This marks only the third postseason meeting between these storied NFC North rivals, adding another chapter to the NFL's oldest rivalry. The Bears, led by quarterback Caleb Williams who set a franchise record with 3,942 passing yards, are eager to capitalize on their home-field advantage at Soldier Field. Green Bay split the regular-season series with Chicago, making this rubber match all the more meaningful. Jordan Love has emerged as a capable successor to Aaron Rodgers, leading the Packers back to the playoffs. The frozen tundra of Soldier Field in January sets the stage for classic Bears-Packers playoff football.`,
-  },
-  {
-    awayTeam: 'Buffalo Bills',
-    homeTeam: 'Jacksonville Jaguars',
-    scheduledAt: new Date('2026-01-11T18:00:00Z'), // Sun 10:00 AM PST
-    gameNumber: 3,
-    matchupBrief: `The Jaguars are hosting their first playoff game since 2017, ending a long postseason drought for the franchise and its passionate fanbase. Jacksonville's defense will be tested against Josh Allen and Buffalo's high-powered offense that ranked among the league's best. The Bills have playoff experience but have struggled to get over the championship hump in recent years. Trevor Lawrence looks to lead Jacksonville on a playoff run reminiscent of their 2017 AFC Championship appearance. This AFC showdown features two quarterbacks who were selected first overall in consecutive drafts battling for advancement.`,
-  },
-  {
-    awayTeam: 'San Francisco 49ers',
-    homeTeam: 'Philadelphia Eagles',
-    scheduledAt: new Date('2026-01-11T21:30:00Z'), // Sun 1:30 PM PST
-    gameNumber: 4,
-    matchupBrief: `The 49ers, despite a season marred by injuries to key players, have secured a playoff spot and now face the defending champion Eagles. San Francisco's resilience throughout the regular season has defined their identity under Kyle Shanahan's leadership. Philadelphia enters as the 2-seed with revenge on their minds after multiple playoff battles with the 49ers in recent years. Jalen Hurts and the Eagles' explosive offense face a 49ers defense that has proven it can rise to the occasion. This NFC showdown features two of the conference's premier franchises with Super Bowl aspirations.`,
+    matchupBrief: `The Ravens and Steelers renew their fierce AFC North rivalry in the postseason, marking another chapter in one of football's most physical matchups. Lamar Jackson looks to silence his playoff critics after winning his second MVP award this season. Pittsburgh's defense, led by T.J. Watt, will look to contain Baltimore's dynamic rushing attack. The Steelers split the regular-season series with Baltimore, making this rubber match all the more meaningful. M&T Bank Stadium will be rocking as Baltimore seeks their first Super Bowl appearance since 2012.`,
   },
   {
     awayTeam: 'Los Angeles Chargers',
-    homeTeam: 'New England Patriots',
-    scheduledAt: new Date('2026-01-12T01:00:00Z'), // Sun 5:00 PM PST
-    gameNumber: 5,
-    matchupBrief: `The Chargers, entering the playoffs as the seventh seed, travel to Foxborough to face the second-seeded Patriots in a primetime showdown. New England's strong defense, which led the league in sacks this season, will look to contain the Chargers' dynamic offensive attack. Jim Harbaugh has brought a new energy to Los Angeles in his first season, returning the Chargers to playoff relevance. The Patriots continue their pursuit of another championship under a retooled roster built around their stout defense. This matchup features two franchises with rich playoff histories meeting in what could be a defensive struggle.`,
+    homeTeam: 'Houston Texans',
+    scheduledAt: new Date('2025-01-12T01:00:00Z'), // Sat 8:00 PM ET
+    gameNumber: 3,
+    matchupBrief: `Jim Harbaugh has brought the Chargers back to playoff relevance in his first season, returning Los Angeles to January football. C.J. Stroud leads the Texans in his second playoff appearance, building on last year's Wild Card victory. Houston's home-field advantage at NRG Stadium gives them an edge in this AFC showdown. The Chargers' stout defense will be tested against Stroud and the Texans' explosive passing attack. This matchup features two of the AFC's brightest young quarterbacks battling for advancement to the Divisional Round.`,
   },
   {
-    awayTeam: 'Houston Texans',
-    homeTeam: 'Pittsburgh Steelers',
-    scheduledAt: new Date('2026-01-12T20:15:00Z'), // Mon Night
+    awayTeam: 'Green Bay Packers',
+    homeTeam: 'Philadelphia Eagles',
+    scheduledAt: new Date('2025-01-12T21:30:00Z'), // Sun 4:30 PM ET
+    gameNumber: 4,
+    matchupBrief: `Jordan Love leads the Packers back to the playoffs, continuing Green Bay's tradition of elite quarterback play. The Eagles enter as the 2-seed with Jalen Hurts and one of the league's most balanced offenses. Philadelphia's home-field advantage at Lincoln Financial Field creates one of the NFL's toughest environments. Green Bay's young roster gained valuable playoff experience last season in their Wild Card win over Dallas. This NFC showdown features two franchises with rich playoff histories meeting in a highly anticipated matchup.`,
+  },
+  {
+    awayTeam: 'Washington Commanders',
+    homeTeam: 'Tampa Bay Buccaneers',
+    scheduledAt: new Date('2025-01-12T18:00:00Z'), // Sun 1:00 PM ET
+    gameNumber: 5,
+    matchupBrief: `Rookie sensation Jayden Daniels leads Washington to the playoffs in his first season, electrifying the Commanders' fanbase. Tampa Bay's Baker Mayfield has rejuvenated his career with the Buccaneers, leading them to another NFC South title. The Commanders' dynamic offense will be tested against a Bucs defense that improved dramatically down the stretch. Raymond James Stadium provides a warm-weather advantage for Tampa Bay in this NFC Wild Card clash. This matchup showcases two quarterbacks who have exceeded expectations and brought new life to their franchises.`,
+  },
+  {
+    awayTeam: 'Minnesota Vikings',
+    homeTeam: 'Los Angeles Rams',
+    scheduledAt: new Date('2025-01-13T21:00:00Z'), // Mon 8:00 PM ET
     gameNumber: 6,
-    matchupBrief: `The Steelers, fresh off clinching the AFC North title, host the Texans in a Monday night Wild Card matchup at Acrisure Stadium. Pittsburgh's defense, which led the league in sacks this season, will aim to disrupt C.J. Stroud and Houston's offensive rhythm. The Texans emerged as surprise contenders this season behind their second-year quarterback who has exceeded all expectations. Mike Tomlin's playoff experience gives Pittsburgh an edge, as the Steelers have never had a losing season under his leadership. This primetime AFC clash showcases a rising young quarterback against one of football's most storied defensive franchises.`,
+    matchupBrief: `Sam Darnold's career resurrection in Minnesota has been one of the season's best stories, leading the Vikings to a Wild Card berth. The Rams host their first playoff game at SoFi Stadium since their Super Bowl LVI victory, with Matthew Stafford seeking another championship run. Minnesota's Justin Jefferson is the most dangerous receiver in the playoffs, capable of taking over any game. Los Angeles' defensive front will look to pressure Darnold and disrupt Minnesota's offensive rhythm. This primetime NFC clash features two teams that have overcome significant adversity to reach the postseason.`,
   },
 ];
 
 // NFL-specific payout structure
 const NFL_PAYOUT_RULES = [
-  { name: 'Super Bowl Champion', trigger: PayoutTrigger.SUPER_BOWL_WIN, percentage: 50, order: 1 },
-  { name: 'Super Bowl Runner-up', trigger: PayoutTrigger.SUPER_BOWL_WIN, percentage: 15, order: 2, triggerValue: 'runner_up' },
-  { name: 'Conference Champion (each)', trigger: PayoutTrigger.CONFERENCE_CHAMPIONSHIP, percentage: 7.5, order: 3 },
-  { name: 'Divisional Round Win (each)', trigger: PayoutTrigger.DIVISIONAL_ROUND, percentage: 3.75, order: 4 },
-  { name: 'Wild Card Win (each)', trigger: PayoutTrigger.WILD_CARD_WIN, percentage: 1.25, order: 5 },
+  { name: 'Super Bowl Champion', trigger: 'SUPER_BOWL_WIN', percentage: 50, order: 1 },
+  { name: 'Super Bowl Runner-up', trigger: 'SUPER_BOWL_WIN', percentage: 15, order: 2, triggerValue: 'runner_up' },
+  { name: 'Conference Champion (each)', trigger: 'CONFERENCE_CHAMPIONSHIP', percentage: 7.5, order: 3 },
+  { name: 'Divisional Round Win (each)', trigger: 'DIVISIONAL_ROUND', percentage: 3.75, order: 4 },
+  { name: 'Wild Card Win (each)', trigger: 'WILD_CARD_WIN', percentage: 1.25, order: 5 },
 ];
 
 async function main() {
-  console.log('🏈 Seeding 2026 NFL Playoffs...');
+  console.log('🏈 Seeding 2024-25 NFL Playoffs...');
 
-  // Create or update the 2026 NFL Playoffs tournament
-  const tournament = await prisma.tournament.upsert({
-    where: { name_year: { name: 'NFL Playoffs', year: 2026 } },
-    update: {
-      status: TournamentStatus.IN_PROGRESS,
-      startDate: new Date('2026-01-10'),
-      endDate: new Date('2026-02-08'),
-    },
-    create: {
-      name: 'NFL Playoffs',
-      year: 2026,
-      sport: Sport.NFL,
-      status: TournamentStatus.IN_PROGRESS,
-      startDate: new Date('2026-01-10'),
-      endDate: new Date('2026-02-08'), // Super Bowl Sunday
-      externalId: 'nfl-playoffs-2026',
-    },
+  // Find or create the 2025 NFL Playoffs tournament (playoffs that occur in January 2025)
+  let tournament = await db.query.tournaments.findFirst({
+    where: and(eq(tournaments.name, 'NFL Playoffs'), eq(tournaments.year, 2025)),
   });
+
+  const now = new Date();
+  
+  if (tournament) {
+    // Update existing tournament
+    await db.update(tournaments)
+      .set({
+        status: 'IN_PROGRESS',
+        startDate: new Date('2025-01-11'),
+        endDate: new Date('2025-02-09'),
+        updatedAt: now,
+      })
+      .where(eq(tournaments.id, tournament.id));
+  } else {
+    // Create new tournament
+    const [created] = await db.insert(tournaments)
+      .values({
+        name: 'NFL Playoffs',
+        year: 2025,
+        sport: 'NFL',
+        status: 'IN_PROGRESS',
+        startDate: new Date('2025-01-11'),
+        endDate: new Date('2025-02-09'), // Super Bowl Sunday
+        externalId: 'nfl-playoffs-2025',
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+    tournament = created;
+  }
 
   console.log(`✅ Created tournament: ${tournament.name} ${tournament.year}`);
 
   // Check if there are existing auction items referencing teams (active pools)
-  const existingTeams = await prisma.team.findMany({
-    where: { tournamentId: tournament.id },
-    include: { auctionItems: { take: 1 } },
+  const existingTeams = await db.query.teams.findMany({
+    where: eq(teams.tournamentId, tournament.id),
+    with: { auctionItems: { limit: 1 } },
   });
   
   const hasActiveAuctions = existingTeams.some(t => t.auctionItems.length > 0);
   
   if (hasActiveAuctions) {
     console.log('⚠️  Existing pools found - updating data without deletion');
-    // Just update games without recreating teams
-    await prisma.game.deleteMany({ where: { tournamentId: tournament.id } });
+    // Just delete games and recreate them
+    await db.delete(games).where(eq(games.tournamentId, tournament.id));
   } else {
     // Safe to clean up and recreate
-    await prisma.game.deleteMany({ where: { tournamentId: tournament.id } });
-    await prisma.team.deleteMany({ where: { tournamentId: tournament.id } });
+    await db.delete(games).where(eq(games.tournamentId, tournament.id));
+    await db.delete(teams).where(eq(teams.tournamentId, tournament.id));
   }
 
   // Create or update teams for each conference
   const teamMap: Record<string, string> = {};
   let teamCount = 0;
 
-  for (const [conference, teams] of Object.entries(NFL_PLAYOFF_TEAMS)) {
-    for (const team of teams) {
+  for (const [conference, teamsList] of Object.entries(NFL_PLAYOFF_TEAMS)) {
+    for (const team of teamsList) {
       const logoUrl = NFL_TEAM_LOGOS[team.name] || null;
-      const created = await prisma.team.upsert({
-        where: {
-          tournamentId_externalId: {
-            tournamentId: tournament.id,
-            externalId: `${conference}-${team.seed}-2026`,
-          },
-        },
-        update: {
-          name: team.name,
-          shortName: team.shortName,
-          seed: team.seed,
-          region: conference,
-          logoUrl: logoUrl,
-        },
-        create: {
-          tournamentId: tournament.id,
-          name: team.name,
-          shortName: team.shortName,
-          seed: team.seed,
-          region: conference, // Using region field for conference (AFC/NFC)
-          logoUrl: logoUrl,
-          externalId: `${conference}-${team.seed}-2026`,
-        },
+      const externalId = `${conference}-${team.seed}-2025`;
+      
+      // Check if team exists
+      let existingTeam = await db.query.teams.findFirst({
+        where: and(eq(teams.tournamentId, tournament.id), eq(teams.externalId, externalId)),
       });
-      teamMap[team.name] = created.id;
+
+      if (existingTeam) {
+        // Update existing team
+        await db.update(teams)
+          .set({
+            name: team.name,
+            shortName: team.shortName,
+            seed: team.seed,
+            region: conference,
+            logoUrl: logoUrl,
+          })
+          .where(eq(teams.id, existingTeam.id));
+        teamMap[team.name] = existingTeam.id;
+      } else {
+        // Create new team
+        const [created] = await db.insert(teams)
+          .values({
+            tournamentId: tournament.id,
+            name: team.name,
+            shortName: team.shortName,
+            seed: team.seed,
+            region: conference, // Using region field for conference (AFC/NFC)
+            logoUrl: logoUrl,
+            externalId: externalId,
+            createdAt: now,
+          })
+          .returning();
+        teamMap[team.name] = created.id;
+      }
       teamCount++;
       console.log(`  📋 ${hasActiveAuctions ? 'Updated' : 'Created'} ${conference} #${team.seed}: ${team.name}`);
     }
@@ -171,28 +195,40 @@ async function main() {
       continue;
     }
 
-    await prisma.game.upsert({
-      where: {
-        externalId: `nfl-2026-wc-${matchup.gameNumber}`,
-      },
-      update: {
-        team1Id: homeTeamId, // Home team
-        team2Id: awayTeamId, // Away team
-        scheduledAt: matchup.scheduledAt,
-        matchupBrief: matchup.matchupBrief,
-      },
-      create: {
+    const externalId = `nfl-2025-wc-${matchup.gameNumber}`;
+    
+    // Check if game exists
+    const existingGame = await db.query.games.findFirst({
+      where: eq(games.externalId, externalId),
+    });
+
+    if (existingGame) {
+      // Update existing game
+      await db.update(games)
+        .set({
+          team1Id: homeTeamId, // Home team
+          team2Id: awayTeamId, // Away team
+          scheduledAt: matchup.scheduledAt,
+          matchupBrief: matchup.matchupBrief,
+          updatedAt: now,
+        })
+        .where(eq(games.id, existingGame.id));
+    } else {
+      // Create new game
+      await db.insert(games).values({
         tournamentId: tournament.id,
         round: 1, // Wild Card = Round 1
         gameNumber: matchup.gameNumber,
         team1Id: homeTeamId, // Home team
         team2Id: awayTeamId, // Away team
-        status: GameStatus.SCHEDULED,
+        status: 'SCHEDULED',
         scheduledAt: matchup.scheduledAt,
         matchupBrief: matchup.matchupBrief,
-        externalId: `nfl-2026-wc-${matchup.gameNumber}`,
-      },
-    });
+        externalId: externalId,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
     console.log(`  🎮 Created Wild Card game: ${matchup.awayTeam} @ ${matchup.homeTeam}`);
   }
 
@@ -226,11 +262,7 @@ main()
   .catch((e) => {
     console.error('❌ NFL Playoffs seed failed:', e);
     process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
   });
 
 // Export for use in other scripts
 export { NFL_PLAYOFF_TEAMS, WILD_CARD_MATCHUPS, NFL_PAYOUT_RULES };
-

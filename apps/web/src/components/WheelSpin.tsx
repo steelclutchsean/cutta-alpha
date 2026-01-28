@@ -39,7 +39,7 @@ const TEAM_COLORS: Record<string, { primary: string; secondary: string }> = {
   LAR: { primary: '#003594', secondary: '#FFA300' },
 };
 
-const DEFAULT_COLORS = { primary: '#6366f1', secondary: '#a855f7' };
+const DEFAULT_COLORS = { primary: '#2E8B57', secondary: '#D4AF37' };
 
 export default function WheelSpin({
   teams,

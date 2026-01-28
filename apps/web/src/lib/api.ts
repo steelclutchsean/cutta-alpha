@@ -67,7 +67,7 @@ export const usersApi = {
   me: (token: string) =>
     fetchApi<any>('/users/me', { token }),
 
-  syncClerkUser: (token: string, data: { clerkId: string; email: string; displayName: string; avatarUrl?: string | null }) =>
+  syncGoogleUser: (token: string, data: { googleId?: string; email: string; displayName: string; avatarUrl?: string | null }) =>
     fetchApi<any>('/users/sync', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -80,7 +80,7 @@ export const usersApi = {
   updateProfile: (token: string, data: { 
     displayName?: string; 
     avatarUrl?: string | null; 
-    avatarType?: 'CUSTOM' | 'PRESET' | 'CLERK';
+    avatarType?: 'CUSTOM' | 'PRESET' | 'GOOGLE';
     presetAvatarId?: string | null;
     phone?: string | null;
   }) =>
@@ -445,8 +445,59 @@ export const marketApi = {
     fetchApi<any[]>('/market/transactions', { token }),
 };
 
+// Tournament types
+export interface DiscoveredEvent {
+  sport: string;
+  sportName: string;
+  eventId: string;
+  eventName: string;
+  year: number;
+  teamCount: number;
+  status: 'upcoming' | 'in_progress' | 'completed';
+  startDate?: string;
+  endDate?: string;
+  tournamentId?: string | null;
+  dbTeamCount?: number;
+  existsInDb?: boolean;
+}
+
+export interface SportInfo {
+  id: string;
+  name: string;
+  events: { id: string; name: string; teamCount: number }[];
+}
+
+export interface EventsDiscoveryResponse {
+  sport: string;
+  sportName: string;
+  year: number;
+  events: DiscoveredEvent[];
+  availableYears: number[];
+}
+
+export interface SportsListResponse {
+  sports: SportInfo[];
+  availableYears: number[];
+}
+
+export interface EventPreviewResponse {
+  sport: string;
+  year: number;
+  eventId?: string;
+  teamCount: number;
+  teams: any[];
+  hasMore: boolean;
+}
+
+export interface CreateTournamentResponse {
+  tournament: any;
+  created: boolean;
+  message: string;
+}
+
 // Tournaments
 export const tournamentsApi = {
+  // Standard tournament endpoints
   list: (params?: { status?: string; sport?: string; year?: string }) =>
     fetchApi<any[]>(`/tournaments${params ? `?${new URLSearchParams(params as any)}` : ''}`),
 
@@ -464,6 +515,25 @@ export const tournamentsApi = {
 
   getStandings: (id: string) =>
     fetchApi<any[]>(`/tournaments/${id}/standings`),
+
+  // ESPN Event Discovery endpoints
+  getSports: () =>
+    fetchApi<SportsListResponse>('/tournaments/events/sports'),
+
+  discoverEvents: (sport: string, year: number) =>
+    fetchApi<EventsDiscoveryResponse>(`/tournaments/events/discover?sport=${sport}&year=${year}`),
+
+  previewEvent: (sport: string, year: number, eventId?: string) =>
+    fetchApi<EventPreviewResponse>(
+      `/tournaments/events/preview?sport=${sport}&year=${year}${eventId ? `&eventId=${eventId}` : ''}`
+    ),
+
+  createFromEvent: (data: { sport: string; year: number; eventId?: string; eventName?: string }, token: string) =>
+    fetchApi<CreateTournamentResponse>('/tournaments/events/create', {
+      method: 'POST',
+      body: data,
+      token,
+    }),
 };
 
 export { ApiError };

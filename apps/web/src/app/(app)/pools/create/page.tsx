@@ -26,12 +26,24 @@ import {
   Lock,
   Zap,
   Wallet,
+  ChevronDown,
+  Loader2,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { useTournaments } from '@/lib/hooks';
-import { poolsApi } from '@/lib/api';
+import { poolsApi, tournamentsApi, DiscoveredEvent } from '@/lib/api';
 import { formatCurrency } from '@cutta/shared';
 import toast from 'react-hot-toast';
+
+// Sport icons and display configuration
+const SPORT_CONFIG: Record<string, { name: string; icon: string; color: string }> = {
+  NCAA_BASKETBALL: { name: 'March Madness', icon: '🏀', color: 'from-orange-500 to-orange-600' },
+  NFL: { name: 'NFL Playoffs', icon: '🏈', color: 'from-green-600 to-green-700' },
+  NBA: { name: 'NBA Playoffs', icon: '🏀', color: 'from-red-500 to-orange-500' },
+  NHL: { name: 'NHL Playoffs', icon: '🏒', color: 'from-blue-500 to-blue-600' },
+  MLB: { name: 'MLB Playoffs', icon: '⚾', color: 'from-red-600 to-blue-600' },
+  TENNIS: { name: 'Tennis Grand Slams', icon: '🎾', color: 'from-yellow-500 to-green-500' },
+};
 
 type Step = 'basics' | 'tournament' | 'settings' | 'payouts' | 'review';
 
@@ -154,7 +166,7 @@ const STEPS: { key: Step; label: string; icon: typeof Trophy }[] = [
 export default function CreatePoolPage() {
   const router = useRouter();
   const { token } = useAuth();
-  const { data: tournaments, isLoading: tournamentsLoading } = useTournaments();
+  const { data: tournaments, isLoading: tournamentsLoading, error: tournamentsError } = useTournaments();
 
   const [step, setStep] = useState<Step>('basics');
   const [isLoading, setIsLoading] = useState(false);
@@ -178,7 +190,99 @@ export default function CreatePoolPage() {
   const [budgetEnabled, setBudgetEnabled] = useState(false);
   const [auctionBudget, setAuctionBudget] = useState<number | null>(null);
 
-  const selectedTournament = tournaments?.find((t: any) => t.id === tournamentId);
+  // Tournament/Event Selection State
+  const [selectedSport, setSelectedSport] = useState<string | null>(null);
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [availableYears, setAvailableYears] = useState<number[]>([]);
+  const [discoveredEvents, setDiscoveredEvents] = useState<DiscoveredEvent[]>([]);
+  const [selectedEvent, setSelectedEvent] = useState<DiscoveredEvent | null>(null);
+  const [eventsLoading, setEventsLoading] = useState(false);
+  const [creatingTournament, setCreatingTournament] = useState(false);
+
+  // Initialize available years
+  useEffect(() => {
+    const currentYear = new Date().getFullYear();
+    setAvailableYears([currentYear, currentYear - 1, currentYear - 2]);
+  }, []);
+
+  // Fetch events when sport or year changes
+  useEffect(() => {
+    if (!selectedSport) {
+      setDiscoveredEvents([]);
+      return;
+    }
+
+    const fetchEvents = async () => {
+      setEventsLoading(true);
+      try {
+        const response = await tournamentsApi.discoverEvents(selectedSport, selectedYear);
+        setDiscoveredEvents(response.events);
+      } catch (error) {
+        console.error('Error fetching events:', error);
+        toast.error('Failed to load events');
+        setDiscoveredEvents([]);
+      } finally {
+        setEventsLoading(false);
+      }
+    };
+
+    fetchEvents();
+  }, [selectedSport, selectedYear]);
+
+  // Handle event selection - create tournament if needed
+  const handleEventSelect = async (event: DiscoveredEvent) => {
+    setSelectedEvent(event);
+
+    // If tournament already exists in DB, use it
+    if (event.existsInDb && event.tournamentId) {
+      setTournamentId(event.tournamentId);
+      return;
+    }
+
+    // Create tournament from ESPN data
+    if (!token) {
+      toast.error('Please log in to create a tournament');
+      return;
+    }
+
+    setCreatingTournament(true);
+    try {
+      const result = await tournamentsApi.createFromEvent({
+        sport: event.sport,
+        year: event.year,
+        eventId: event.eventId,
+        eventName: event.eventName,
+      }, token);
+
+      setTournamentId(result.tournament.id);
+      
+      // Update the event in the list to show it exists now
+      setDiscoveredEvents(prev => prev.map(e => 
+        e.eventId === event.eventId 
+          ? { ...e, existsInDb: true, tournamentId: result.tournament.id, dbTeamCount: result.tournament.teamCount }
+          : e
+      ));
+      
+      if (result.created) {
+        toast.success(`Created ${event.eventName} with ${result.tournament.teamCount} teams`);
+      }
+    } catch (error: any) {
+      console.error('Error creating tournament:', error);
+      toast.error(error.message || 'Failed to create tournament');
+      setSelectedEvent(null);
+    } finally {
+      setCreatingTournament(false);
+    }
+  };
+
+  const selectedTournament = tournaments?.find((t: any) => t.id === tournamentId) || 
+    (selectedEvent?.existsInDb ? { 
+      id: selectedEvent.tournamentId, 
+      name: selectedEvent.eventName.replace(` ${selectedEvent.year}`, ''),
+      year: selectedEvent.year,
+      sport: selectedEvent.sport,
+      teamCount: selectedEvent.dbTeamCount || selectedEvent.teamCount,
+    } : null);
   const isNFLTournament = selectedTournament?.sport === 'NFL';
 
   // Get appropriate templates and triggers based on tournament type
@@ -418,7 +522,7 @@ export default function CreatePoolPage() {
               <p className="text-xs text-dark-400">Buy-in</p>
             </div>
             <div>
-              <p className="text-2xl font-bold">{selectedTournament?.teams?.length || 0}</p>
+              <p className="text-2xl font-bold">{selectedEvent?.dbTeamCount || selectedEvent?.teamCount || selectedTournament?.teamCount || 0}</p>
               <p className="text-xs text-dark-400">Teams</p>
             </div>
             <div>
@@ -551,47 +655,160 @@ export default function CreatePoolPage() {
             <div className="space-y-6">
               <div>
                 <h2 className="text-xl font-bold mb-1">Select Tournament</h2>
-                <p className="text-dark-400">Choose the tournament for your pool</p>
+                <p className="text-dark-400">Choose the sport and event for your pool</p>
               </div>
 
-              {tournamentsLoading ? (
-                <div className="grid gap-3">
-                  {[1, 2, 3].map((i) => (
-                    <div key={i} className="h-20 glass-card animate-pulse" />
-                  ))}
-                </div>
-              ) : (
-                <div className="grid gap-3">
-                  {tournaments?.map((tournament: any) => (
+              {/* Sport Selection */}
+              <div>
+                <label className="block text-sm font-medium mb-3 text-dark-200">Sport</label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {Object.entries(SPORT_CONFIG).map(([sportId, config]) => (
                     <button
-                      key={tournament.id}
-                      onClick={() => setTournamentId(tournament.id)}
+                      key={sportId}
+                      onClick={() => {
+                        setSelectedSport(sportId);
+                        setSelectedEvent(null);
+                        setTournamentId('');
+                      }}
                       className={`p-4 rounded-xl transition-all text-left ${
-                        tournamentId === tournament.id
+                        selectedSport === sportId
                           ? 'bg-primary-500/15 border border-primary-500/40 shadow-glass-glow'
                           : 'glass-card-hover'
                       }`}
                     >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h3 className="font-semibold text-white">{tournament.name} {tournament.year}</h3>
-                          <p className="text-sm text-dark-400">
-                            {tournament.sport?.replace('_', ' ')} • {tournament.teams?.length || 0} teams
-                          </p>
-                        </div>
-                        <div className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all ${
-                          tournamentId === tournament.id
-                            ? 'bg-primary-500 shadow-glass-glow'
-                            : 'bg-white/5 border border-white/10'
-                        }`}>
-                          {tournamentId === tournament.id && (
-                            <Check className="w-4 h-4 text-dark-900" />
-                          )}
-                        </div>
+                      <div className="flex flex-col items-center gap-2">
+                        <span className="text-3xl">{config.icon}</span>
+                        <span className="font-medium text-sm text-center">{config.name}</span>
                       </div>
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Year Selection */}
+              {selectedSport && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                >
+                  <label className="block text-sm font-medium mb-3 text-dark-200">Year</label>
+                  <div className="flex gap-3">
+                    {availableYears.map((year) => (
+                      <button
+                        key={year}
+                        onClick={() => {
+                          setSelectedYear(year);
+                          setSelectedEvent(null);
+                          setTournamentId('');
+                        }}
+                        className={`flex-1 py-3 px-4 rounded-xl transition-all font-medium ${
+                          selectedYear === year
+                            ? 'bg-primary-500/15 border border-primary-500/40 text-primary-400'
+                            : 'glass-card-hover text-dark-300'
+                        }`}
+                      >
+                        {year}
+                      </button>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Events List */}
+              {selectedSport && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.1 }}
+                >
+                  <label className="block text-sm font-medium mb-3 text-dark-200">
+                    Available Events
+                  </label>
+
+                  {eventsLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin text-primary-400" />
+                      <span className="ml-2 text-dark-400">Loading events from ESPN...</span>
+                    </div>
+                  ) : discoveredEvents.length === 0 ? (
+                    <div className="glass-card text-center py-8">
+                      <p className="text-dark-400">No events found for {SPORT_CONFIG[selectedSport]?.name} {selectedYear}</p>
+                    </div>
+                  ) : (
+                    <div className="grid gap-3">
+                      {discoveredEvents.map((event) => (
+                        <button
+                          key={event.eventId}
+                          onClick={() => handleEventSelect(event)}
+                          disabled={creatingTournament}
+                          className={`p-4 rounded-xl transition-all text-left ${
+                            selectedEvent?.eventId === event.eventId
+                              ? 'bg-primary-500/15 border border-primary-500/40 shadow-glass-glow'
+                              : 'glass-card-hover'
+                          } ${creatingTournament ? 'opacity-50 cursor-wait' : ''}`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <span className="text-2xl">{SPORT_CONFIG[event.sport]?.icon}</span>
+                              <div>
+                                <h3 className="font-semibold text-white">{event.eventName}</h3>
+                                <div className="flex items-center gap-2 text-sm text-dark-400">
+                                  <span>{event.teamCount} teams</span>
+                                  <span>•</span>
+                                  <span className={`capitalize ${
+                                    event.status === 'in_progress' ? 'text-primary-400' :
+                                    event.status === 'upcoming' ? 'text-gold-400' :
+                                    'text-dark-500'
+                                  }`}>
+                                    {event.status.replace('_', ' ')}
+                                  </span>
+                                  {event.existsInDb && (
+                                    <>
+                                      <span>•</span>
+                                      <span className="text-primary-400">Ready</span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <div className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all ${
+                              selectedEvent?.eventId === event.eventId
+                                ? 'bg-primary-500 shadow-glass-glow'
+                                : 'bg-white/5 border border-white/10'
+                            }`}>
+                              {creatingTournament && selectedEvent?.eventId === event.eventId ? (
+                                <Loader2 className="w-4 h-4 animate-spin text-dark-900" />
+                              ) : selectedEvent?.eventId === event.eventId ? (
+                                <Check className="w-4 h-4 text-dark-900" />
+                              ) : null}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </motion.div>
+              )}
+
+              {/* Selected Tournament Summary */}
+              {selectedEvent && tournamentId && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="glass-card bg-primary-500/10 border border-primary-500/30"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-xl bg-primary-500/20 flex items-center justify-center">
+                      <Check className="w-6 h-6 text-primary-400" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-white">{selectedEvent.eventName}</h3>
+                      <p className="text-sm text-primary-400">
+                        {selectedEvent.dbTeamCount || selectedEvent.teamCount} teams ready for auction
+                      </p>
+                    </div>
+                  </div>
+                </motion.div>
               )}
             </div>
           )}
@@ -608,8 +825,8 @@ export default function CreatePoolPage() {
               <div className="glass-card">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isPublic ? 'bg-primary-500/20' : 'bg-dark-600'}`}>
-                      {isPublic ? <Globe className="w-5 h-5 text-primary-400" /> : <Lock className="w-5 h-5 text-dark-400" />}
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isPublic ? 'bg-primary-500/20' : 'bg-primary-500/10 border border-primary-500/20'}`}>
+                      {isPublic ? <Globe className="w-5 h-5 text-primary-400" /> : <Lock className="w-5 h-5 text-primary-400/60" />}
                     </div>
                     <div>
                       <h3 className="font-medium text-white">{isPublic ? 'Public Pool' : 'Private Pool'}</h3>
@@ -631,7 +848,7 @@ export default function CreatePoolPage() {
                 <div>
                   <label className="block text-sm font-medium mb-2 text-dark-200">Buy-in Amount</label>
                   <div className="relative">
-                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-dark-400" />
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gold-400/60" />
                     <input
                       type="number"
                       value={buyIn}
@@ -646,7 +863,7 @@ export default function CreatePoolPage() {
                 <div>
                   <label className="block text-sm font-medium mb-2 text-dark-200">Max Participants</label>
                   <div className="relative">
-                    <Users className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-dark-400" />
+                    <Users className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-primary-400/60" />
                     <input
                       type="number"
                       value={maxParticipants || ''}
@@ -665,8 +882,8 @@ export default function CreatePoolPage() {
               <div className="glass-card">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${autoStartAuction ? 'bg-gold-500/20' : 'bg-dark-600'}`}>
-                      <Zap className={`w-5 h-5 ${autoStartAuction ? 'text-gold-400' : 'text-dark-400'}`} />
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${autoStartAuction ? 'bg-gold-500/20' : 'bg-gold-500/10 border border-gold-500/20'}`}>
+                      <Zap className={`w-5 h-5 ${autoStartAuction ? 'text-gold-400' : 'text-gold-400/60'}`} />
                     </div>
                     <div>
                       <h3 className="font-medium text-white">Start Auction Immediately</h3>
@@ -716,8 +933,8 @@ export default function CreatePoolPage() {
               <div className="glass-card">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${budgetEnabled ? 'bg-primary-500/20' : 'bg-dark-600'}`}>
-                      <Wallet className={`w-5 h-5 ${budgetEnabled ? 'text-primary-400' : 'text-dark-400'}`} />
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${budgetEnabled ? 'bg-primary-500/20' : 'bg-primary-500/10 border border-primary-500/20'}`}>
+                      <Wallet className={`w-5 h-5 ${budgetEnabled ? 'text-primary-400' : 'text-primary-400/60'}`} />
                     </div>
                     <div>
                       <h3 className="font-medium text-white">Auction Budget Limits</h3>
@@ -744,7 +961,7 @@ export default function CreatePoolPage() {
                   <div className="mt-4 pt-4 border-t border-white/5">
                     <label className="block text-sm font-medium mb-2 text-dark-200">Budget per Member</label>
                     <div className="relative">
-                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-dark-400" />
+                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gold-400/60" />
                       <input
                         type="number"
                         value={auctionBudget || ''}
@@ -795,9 +1012,9 @@ export default function CreatePoolPage() {
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                        auctionMode === 'TRADITIONAL' ? 'bg-primary-500' : 'bg-white/10'
+                        auctionMode === 'TRADITIONAL' ? 'bg-primary-500' : 'bg-primary-500/10 border border-primary-500/20'
                       }`}>
-                        <DollarSign className={`w-4 h-4 ${auctionMode === 'TRADITIONAL' ? 'text-dark-900' : 'text-dark-400'}`} />
+                        <DollarSign className={`w-4 h-4 ${auctionMode === 'TRADITIONAL' ? 'text-dark-900' : 'text-primary-400/60'}`} />
                       </div>
                       <span className="font-medium">Traditional</span>
                     </div>
@@ -816,9 +1033,9 @@ export default function CreatePoolPage() {
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                        auctionMode === 'WHEEL_SPIN' ? 'bg-gold-500' : 'bg-white/10'
+                        auctionMode === 'WHEEL_SPIN' ? 'bg-gold-500' : 'bg-gold-500/10 border border-gold-500/20'
                       }`}>
-                        <Sparkles className={`w-4 h-4 ${auctionMode === 'WHEEL_SPIN' ? 'text-dark-900' : 'text-dark-400'}`} />
+                        <Sparkles className={`w-4 h-4 ${auctionMode === 'WHEEL_SPIN' ? 'text-dark-900' : 'text-gold-400/60'}`} />
                       </div>
                       <span className="font-medium">Wheel Spin</span>
                     </div>
@@ -992,8 +1209,19 @@ export default function CreatePoolPage() {
                 {/* Tournament */}
                 <div className="glass-card">
                   <h3 className="text-xs font-medium text-dark-400 uppercase tracking-wider mb-4">Tournament</h3>
-                  <p className="font-semibold text-white">{selectedTournament?.name} {selectedTournament?.year}</p>
-                  <p className="text-sm text-dark-400">{selectedTournament?.teams?.length || 0} teams</p>
+                  <div className="flex items-center gap-3">
+                    {selectedEvent && (
+                      <span className="text-2xl">{SPORT_CONFIG[selectedEvent.sport]?.icon}</span>
+                    )}
+                    <div>
+                      <p className="font-semibold text-white">
+                        {selectedEvent?.eventName || `${selectedTournament?.name} ${selectedTournament?.year}`}
+                      </p>
+                      <p className="text-sm text-dark-400">
+                        {selectedEvent?.dbTeamCount || selectedEvent?.teamCount || selectedTournament?.teamCount || 0} teams
+                      </p>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Settings */}

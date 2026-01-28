@@ -15,22 +15,16 @@ import {
   Mail,
   Trash2,
   Plus,
-  ExternalLink,
   CheckCircle,
   AlertCircle,
-  Smartphone,
-  ShieldCheck,
-  ShieldAlert,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { useUserProfile, usePaymentMethods } from '@/lib/hooks';
 import { EditProfileModal } from '@/components/EditProfileModal';
 import { formatCurrency } from '@cutta/shared';
-import { useUser } from '@clerk/nextjs';
 
 export default function SettingsPage() {
   const { user, logout } = useAuth();
-  const { user: clerkUser } = useUser();
   const { data: profile, isLoading: profileLoading } = useUserProfile();
   const { data: paymentMethods, isLoading: pmLoading } = usePaymentMethods();
   const [showEditProfile, setShowEditProfile] = useState(false);
@@ -42,9 +36,6 @@ export default function SettingsPage() {
     }
     return profile?.avatarUrl || user?.avatarUrl;
   };
-
-  // Check if 2FA is enabled via Clerk
-  const twoFactorEnabled = clerkUser?.twoFactorEnabled ?? false;
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -149,21 +140,14 @@ export default function SettingsPage() {
         <div className="space-y-4">
           <div className="flex items-center justify-between py-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-dark-600 flex items-center justify-center">
-                <Mail className="w-5 h-5 text-dark-300" />
+              <div className="w-10 h-10 rounded-lg bg-primary-500/10 border border-primary-500/20 flex items-center justify-center">
+                <Mail className="w-5 h-5 text-primary-400" />
               </div>
               <div>
                 <p className="text-sm text-dark-400">Email</p>
                 <p className="font-medium">{profile?.email || user?.email}</p>
               </div>
             </div>
-            <Link
-              href={clerkUser ? '/user' : '#'}
-              className="text-sm text-primary-400 hover:text-primary-300 flex items-center gap-1"
-            >
-              Manage via Clerk
-              <ExternalLink className="w-3 h-3" />
-            </Link>
           </div>
         </div>
       </motion.div>
@@ -212,7 +196,7 @@ export default function SettingsPage() {
                   {pm.isDefault && (
                     <span className="glass-badge-primary text-xs">Default</span>
                   )}
-                  <button className="glass-btn p-2 text-dark-400 hover:text-red-400">
+                  <button className="glass-btn p-2 text-primary-400/60 hover:text-red-400">
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
@@ -221,9 +205,9 @@ export default function SettingsPage() {
           </div>
         ) : (
           <div className="text-center py-8">
-            <CreditCard className="w-12 h-12 text-dark-500 mx-auto mb-3" />
-            <p className="text-dark-300 mb-3">No payment methods added</p>
-            <button className="btn-secondary">
+            <CreditCard className="w-12 h-12 text-primary-400/40 mx-auto mb-3" />
+            <p className="text-text-secondary mb-3">No payment methods added</p>
+            <button className="glass-btn-primary">
               <Plus className="w-4 h-4" />
               Add Payment Method
             </button>
@@ -280,62 +264,23 @@ export default function SettingsPage() {
         </h3>
 
         <div className="space-y-3">
-          {/* Two-Factor Authentication */}
-          <Link
-            href={clerkUser ? '/user/security' : '#'}
-            className="flex items-center justify-between p-3 rounded-lg bg-dark-700/50 hover:bg-dark-700 transition-colors"
-          >
-            <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                twoFactorEnabled ? 'bg-green-500/20' : 'bg-dark-600'
-              }`}>
-                {twoFactorEnabled ? (
-                  <ShieldCheck className="w-5 h-5 text-green-400" />
-                ) : (
-                  <Smartphone className="w-5 h-5 text-dark-400" />
-                )}
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <p className="font-medium">Two-Factor Authentication</p>
-                  {twoFactorEnabled ? (
-                    <span className="glass-badge-success text-xs">
-                      <CheckCircle className="w-3 h-3" />
-                      Enabled
-                    </span>
-                  ) : (
-                    <span className="glass-badge text-xs text-yellow-400">
-                      <ShieldAlert className="w-3 h-3" />
-                      Not enabled
-                    </span>
-                  )}
-                </div>
-                <p className="text-sm text-dark-400">
-                  {twoFactorEnabled 
-                    ? 'Your account is protected with 2FA' 
-                    : 'Add extra security with authenticator app or SMS'}
-                </p>
-              </div>
-            </div>
-            <ChevronRight className="w-5 h-5 text-dark-400" />
-          </Link>
-
           {/* Password Management */}
-          <Link
-            href={clerkUser ? '/user/security' : '#'}
-            className="flex items-center justify-between p-3 rounded-lg bg-dark-700/50 hover:bg-dark-700 transition-colors"
-          >
+          <div className="flex items-center justify-between p-3 rounded-lg bg-white/5 border border-white/5">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-dark-600 flex items-center justify-center">
-                <Lock className="w-5 h-5 text-dark-400" />
+              <div className="w-10 h-10 rounded-lg bg-primary-500/10 border border-primary-500/20 flex items-center justify-center">
+                <Lock className="w-5 h-5 text-primary-400/60" />
               </div>
               <div>
                 <p className="font-medium">Password</p>
-                <p className="text-sm text-dark-400">Change your password</p>
+                <p className="text-sm text-dark-400">
+                  {user?.googleId ? 'Signed in with Google' : 'Manage your password'}
+                </p>
               </div>
             </div>
-            <ChevronRight className="w-5 h-5 text-dark-400" />
-          </Link>
+            {!user?.googleId && (
+              <ChevronRight className="w-5 h-5 text-primary-400/60" />
+            )}
+          </div>
         </div>
       </motion.div>
 

@@ -1,4 +1,4 @@
-import { prisma, Pool, Listing } from '@cutta/db';
+import { db, eq, and, sql, users, paymentMethods, auctionItems, transactions, ownerships, notifications, payouts, poolMembers, listings, type Pool, type Listing } from '@cutta/db';
 import { Server } from 'socket.io';
 import { stripe, createAuctionPaymentIntent, createMarketPaymentIntent } from './stripe.js';
 import { config } from '../config/index.js';
@@ -12,12 +12,12 @@ export async function processAuctionWin(
   amount: number,
   pool: Pool
 ): Promise<void> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    include: {
+  const user = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+    with: {
       paymentMethods: {
-        where: { isDefault: true },
-        take: 1,
+        where: eq(paymentMethods.isDefault, true),
+        limit: 1,
       },
     },
   });
@@ -26,9 +26,9 @@ export async function processAuctionWin(
     throw new Error('User not found');
   }
 
-  const auctionItem = await prisma.auctionItem.findUnique({
-    where: { id: auctionItemId },
-    include: { team: true },
+  const auctionItem = await db.query.auctionItems.findFirst({
+    where: eq(auctionItems.id, auctionItemId),
+    with: { team: true },
   });
 
   if (!auctionItem) {
@@ -36,17 +36,17 @@ export async function processAuctionWin(
   }
 
   // Create transaction record
-  const transaction = await prisma.transaction.create({
-    data: {
+  const [transaction] = await db.insert(transactions)
+    .values({
       type: 'AUCTION_PURCHASE',
       buyerId: userId,
       auctionItemId,
-      amount,
-      platformFee: 0, // No fee on primary auction
-      netAmount: amount,
+      amount: String(amount),
+      platformFee: '0', // No fee on primary auction
+      netAmount: String(amount),
       status: 'PENDING',
-    },
-  });
+    })
+    .returning();
 
   // Process payment if user has Stripe customer ID and payment method
   if (user.stripeCustomerId && user.paymentMethods[0]) {
@@ -63,53 +63,46 @@ export async function processAuctionWin(
         }
       );
 
-      await prisma.transaction.update({
-        where: { id: transaction.id },
-        data: {
+      await db.update(transactions)
+        .set({
           stripePaymentIntentId: paymentIntent.id,
           status: paymentIntent.status === 'succeeded' ? 'COMPLETED' : 'PENDING',
-        },
-      });
+        })
+        .where(eq(transactions.id, transaction.id));
     } catch (error) {
       console.error('Payment failed:', error);
-      await prisma.transaction.update({
-        where: { id: transaction.id },
-        data: { status: 'FAILED' },
-      });
+      await db.update(transactions)
+        .set({ status: 'FAILED' })
+        .where(eq(transactions.id, transaction.id));
       throw error;
     }
   } else {
     // For demo purposes, mark as completed
-    await prisma.transaction.update({
-      where: { id: transaction.id },
-      data: { status: 'COMPLETED' },
-    });
+    await db.update(transactions)
+      .set({ status: 'COMPLETED' })
+      .where(eq(transactions.id, transaction.id));
   }
 
   // Create ownership record
-  await prisma.ownership.create({
-    data: {
-      userId,
-      auctionItemId,
-      percentage: 100,
-      purchasePrice: amount,
-      source: 'AUCTION',
-    },
+  await db.insert(ownerships).values({
+    userId,
+    auctionItemId,
+    percentage: '100',
+    purchasePrice: String(amount),
+    source: 'AUCTION',
   });
 
   // Create notification
-  await prisma.notification.create({
+  await db.insert(notifications).values({
+    userId,
+    type: 'AUCTION_WON',
+    title: 'Auction Won!',
+    body: `You won ${auctionItem.team.name} for $${amount}`,
     data: {
-      userId,
-      type: 'AUCTION_WON',
-      title: 'Auction Won!',
-      body: `You won ${auctionItem.team.name} for $${amount}`,
-      data: {
-        poolId: pool.id,
-        auctionItemId,
-        teamId: auctionItem.teamId,
-        amount,
-      },
+      poolId: pool.id,
+      auctionItemId,
+      teamId: auctionItem.teamId,
+      amount,
     },
   });
 }
@@ -122,6 +115,7 @@ export async function processSecondaryMarketPurchase(
   listing: Listing & {
     seller: { id: string };
     ownership: {
+      id: string;
       auctionItem: {
         team: { name: string };
         pool: { id: string };
@@ -131,12 +125,12 @@ export async function processSecondaryMarketPurchase(
   amount: number,
   io: Server
 ): Promise<{ success: boolean; transactionId: string }> {
-  const buyer = await prisma.user.findUnique({
-    where: { id: buyerId },
-    include: {
+  const buyer = await db.query.users.findFirst({
+    where: eq(users.id, buyerId),
+    with: {
       paymentMethods: {
-        where: { isDefault: true },
-        take: 1,
+        where: eq(paymentMethods.isDefault, true),
+        limit: 1,
       },
     },
   });
@@ -150,18 +144,18 @@ export async function processSecondaryMarketPurchase(
   const netAmount = amount - platformFee;
 
   // Create transaction record
-  const transaction = await prisma.transaction.create({
-    data: {
+  const [transaction] = await db.insert(transactions)
+    .values({
       type: 'SECONDARY_PURCHASE',
       buyerId,
       sellerId: listing.sellerId,
       listingId: listing.id,
-      amount,
-      platformFee,
-      netAmount,
+      amount: String(amount),
+      platformFee: String(platformFee),
+      netAmount: String(netAmount),
       status: 'PENDING',
-    },
-  });
+    })
+    .returning();
 
   // Process payment
   if (buyer.stripeCustomerId && buyer.paymentMethods[0]) {
@@ -174,88 +168,76 @@ export async function processSecondaryMarketPurchase(
           buyerId,
           sellerId: listing.sellerId,
           listingId: listing.id,
-          platformFee: platformFee.toString(),
+          platformFee,
         }
       );
 
-      await prisma.transaction.update({
-        where: { id: transaction.id },
-        data: {
+      await db.update(transactions)
+        .set({
           stripePaymentIntentId: paymentIntent.id,
           status: paymentIntent.status === 'succeeded' ? 'COMPLETED' : 'PENDING',
-        },
-      });
+        })
+        .where(eq(transactions.id, transaction.id));
     } catch (error) {
       console.error('Payment failed:', error);
-      await prisma.transaction.update({
-        where: { id: transaction.id },
-        data: { status: 'FAILED' },
-      });
+      await db.update(transactions)
+        .set({ status: 'FAILED' })
+        .where(eq(transactions.id, transaction.id));
       throw error;
     }
   } else {
     // For demo purposes, mark as completed
-    await prisma.transaction.update({
-      where: { id: transaction.id },
-      data: { status: 'COMPLETED' },
-    });
+    await db.update(transactions)
+      .set({ status: 'COMPLETED' })
+      .where(eq(transactions.id, transaction.id));
   }
 
   // Update listing status
-  await prisma.listing.update({
-    where: { id: listing.id },
-    data: { status: 'SOLD' },
-  });
+  await db.update(listings)
+    .set({ status: 'SOLD' })
+    .where(eq(listings.id, listing.id));
 
   // Transfer ownership
   // Reduce seller's ownership
-  await prisma.ownership.update({
-    where: { id: listing.ownershipId },
-    data: {
-      percentage: {
-        decrement: listing.percentageForSale,
-      },
-    },
-  });
+  await db.update(ownerships)
+    .set({
+      percentage: sql`${ownerships.percentage} - ${listing.percentageForSale}`,
+    })
+    .where(eq(ownerships.id, listing.ownershipId));
 
   // Create buyer's ownership
-  await prisma.ownership.create({
-    data: {
-      userId: buyerId,
-      auctionItemId: listing.ownership.auctionItem.pool.id, // This should be the actual auctionItemId
-      percentage: listing.percentageForSale,
-      purchasePrice: amount,
-      source: 'SECONDARY_MARKET',
-    },
+  await db.insert(ownerships).values({
+    userId: buyerId,
+    auctionItemId: listing.ownership.auctionItem.pool.id, // This should be the actual auctionItemId
+    percentage: listing.percentageForSale,
+    purchasePrice: String(amount),
+    source: 'SECONDARY_MARKET',
   });
 
   // Credit seller's balance
-  await prisma.user.update({
-    where: { id: listing.sellerId },
-    data: {
-      balance: { increment: netAmount },
-    },
-  });
+  await db.update(users)
+    .set({
+      balance: sql`${users.balance} + ${netAmount}`,
+    })
+    .where(eq(users.id, listing.sellerId));
 
   // Notify both parties
-  await prisma.notification.createMany({
-    data: [
-      {
-        userId: buyerId,
-        type: 'OFFER_ACCEPTED',
-        title: 'Purchase Complete',
-        body: `You purchased ${listing.percentageForSale}% of ${listing.ownership.auctionItem.team.name} for $${amount}`,
-        data: { transactionId: transaction.id },
-      },
-      {
-        userId: listing.sellerId,
-        type: 'OFFER_ACCEPTED',
-        title: 'Sale Complete',
-        body: `You sold ${listing.percentageForSale}% of ${listing.ownership.auctionItem.team.name} for $${amount} (received $${netAmount})`,
-        data: { transactionId: transaction.id },
-      },
-    ],
-  });
+  await db.insert(notifications).values([
+    {
+      userId: buyerId,
+      type: 'OFFER_ACCEPTED',
+      title: 'Purchase Complete',
+      body: `You purchased ${listing.percentageForSale}% of ${listing.ownership.auctionItem.team.name} for $${amount}`,
+      data: { transactionId: transaction.id },
+    },
+    {
+      userId: listing.sellerId,
+      type: 'OFFER_ACCEPTED',
+      title: 'Sale Complete',
+      body: `You sold ${listing.percentageForSale}% of ${listing.ownership.auctionItem.team.name} for $${amount} (received $${netAmount})`,
+      data: { transactionId: transaction.id },
+    },
+  ]);
 
   // Broadcast balance update to seller
   io.to(`user:${listing.sellerId}`).emit('balanceUpdate', {
@@ -280,64 +262,58 @@ export async function processPayout(
   io: Server
 ): Promise<void> {
   // Create payout record
-  const payout = await prisma.payout.create({
-    data: {
+  const [payout] = await db.insert(payouts)
+    .values({
       poolId,
       userId,
-      amount,
+      amount: String(amount),
       reason,
       status: 'PENDING',
-    },
-  });
+    })
+    .returning();
 
   // Credit user's balance
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      balance: { increment: amount },
-    },
-  });
+  await db.update(users)
+    .set({
+      balance: sql`${users.balance} + ${amount}`,
+    })
+    .where(eq(users.id, userId));
 
   // Update pool member winnings
-  await prisma.poolMember.update({
-    where: { poolId_userId: { poolId, userId } },
-    data: {
-      totalWinnings: { increment: amount },
-    },
-  });
+  await db.update(poolMembers)
+    .set({
+      totalWinnings: sql`${poolMembers.totalWinnings} + ${amount}`,
+    })
+    .where(and(eq(poolMembers.poolId, poolId), eq(poolMembers.userId, userId)));
 
   // Create transaction
-  await prisma.transaction.create({
-    data: {
-      type: 'PAYOUT',
-      sellerId: userId, // Recipient
-      amount,
-      platformFee: 0,
-      netAmount: amount,
-      status: 'COMPLETED',
-    },
+  await db.insert(transactions).values({
+    type: 'PAYOUT',
+    sellerId: userId, // Recipient
+    amount: String(amount),
+    platformFee: '0',
+    netAmount: String(amount),
+    status: 'COMPLETED',
   });
 
   // Mark payout as processed
-  await prisma.payout.update({
-    where: { id: payout.id },
-    data: { status: 'PROCESSED' },
-  });
+  await db.update(payouts)
+    .set({ status: 'PROCESSED' })
+    .where(eq(payouts.id, payout.id));
 
   // Notify user
-  await prisma.notification.create({
-    data: {
-      userId,
-      type: 'PAYOUT_RECEIVED',
-      title: 'Payout Received!',
-      body: `You received $${amount} - ${reason}`,
-      data: { poolId, amount, reason },
-    },
+  await db.insert(notifications).values({
+    userId,
+    type: 'PAYOUT_RECEIVED',
+    title: 'Payout Received!',
+    body: `You received $${amount} - ${reason}`,
+    data: { poolId, amount, reason },
   });
 
   // Broadcast balance update
+  const updatedUser = await db.query.users.findFirst({ where: eq(users.id, userId) });
   io.to(`user:${userId}`).emit('balanceUpdate', {
-    balance: (await prisma.user.findUnique({ where: { id: userId } }))?.balance,
+    balance: updatedUser?.balance,
     change: amount,
     reason,
   });
@@ -348,4 +324,3 @@ export async function processPayout(
     reason,
   });
 }
-

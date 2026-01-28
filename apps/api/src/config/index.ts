@@ -29,6 +29,16 @@ export const config = {
     url: process.env.LIVEKIT_URL!,
   },
   
+  // Google OAuth
+  google: {
+    clientId: process.env.GOOGLE_CLIENT_ID!,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+    redirectUri: process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3001/auth/google/callback',
+  },
+  
+  // Web App URL (for OAuth redirects)
+  webUrl: process.env.WEB_URL || 'http://localhost:3000',
+  
   // Sports Data API
   sportsDataApiKey: process.env.SPORTS_DATA_API_KEY,
   

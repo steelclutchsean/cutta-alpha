@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { prisma } from '@cutta/db';
+import { db, eq, and, inArray, desc, asc, count, sql, pools, poolMembers, tournaments, teams, auctionItems, payoutRules, deletedPools, users, ownerships } from '@cutta/db';
 import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import {
@@ -19,39 +19,55 @@ poolsRouter.use(authenticate);
 // Get all pools for the user
 poolsRouter.get('/', async (req, res, next) => {
   try {
-    const memberships = await prisma.poolMember.findMany({
-      where: { userId: req.user!.id },
-      include: {
+    const memberships = await db.query.poolMembers.findMany({
+      where: eq(poolMembers.userId, req.user!.id),
+      with: {
         pool: {
-          include: {
+          with: {
             commissioner: {
-              select: { id: true, displayName: true, avatarUrl: true },
+              columns: { id: true, displayName: true, avatarUrl: true },
             },
             tournament: {
-              select: { id: true, name: true, year: true, status: true },
-            },
-            _count: {
-              select: {
-                members: true,
-                auctionItems: true,
-              },
+              columns: { id: true, name: true, year: true, status: true },
             },
           },
         },
       },
-      orderBy: { pool: { auctionStartTime: 'asc' } },
+      orderBy: asc(poolMembers.joinedAt),
     });
 
-    const pools = memberships.map((m) => ({
+    // Get counts for each pool
+    const poolIds = memberships.map(m => m.poolId);
+    
+    const memberCounts = poolIds.length > 0 ? await db.select({
+      poolId: poolMembers.poolId,
+      count: count(),
+    })
+      .from(poolMembers)
+      .where(inArray(poolMembers.poolId, poolIds))
+      .groupBy(poolMembers.poolId) : [];
+    
+    const itemCounts = poolIds.length > 0 ? await db.select({
+      poolId: auctionItems.poolId,
+      count: count(),
+    })
+      .from(auctionItems)
+      .where(inArray(auctionItems.poolId, poolIds))
+      .groupBy(auctionItems.poolId) : [];
+
+    const memberCountMap = new Map(memberCounts.map(c => [c.poolId, c.count]));
+    const itemCountMap = new Map(itemCounts.map(c => [c.poolId, c.count]));
+
+    const poolsData = memberships.map((m) => ({
       ...m.pool,
-      memberCount: m.pool._count.members,
-      auctionItemCount: m.pool._count.auctionItems,
+      memberCount: memberCountMap.get(m.poolId) || 0,
+      auctionItemCount: itemCountMap.get(m.poolId) || 0,
       myRole: m.role,
       mySpent: m.totalSpent,
       myWinnings: m.totalWinnings,
     }));
 
-    res.json(pools);
+    res.json(poolsData);
   } catch (error) {
     next(error);
   }
@@ -60,65 +76,50 @@ poolsRouter.get('/', async (req, res, next) => {
 // Get pools where user is commissioner
 poolsRouter.get('/commissioned', async (req, res, next) => {
   try {
-    const pools = await prisma.pool.findMany({
-      where: { commissionerId: req.user!.id },
-      include: {
+    const commissionedPools = await db.query.pools.findMany({
+      where: eq(pools.commissionerId, req.user!.id),
+      with: {
         commissioner: {
-          select: { id: true, displayName: true, avatarUrl: true },
+          columns: { id: true, displayName: true, avatarUrl: true },
         },
         tournament: {
-          select: { id: true, name: true, year: true, status: true },
-        },
-        _count: {
-          select: {
-            members: true,
-            auctionItems: true,
-          },
+          columns: { id: true, name: true, year: true, status: true },
         },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: desc(pools.createdAt),
     });
+
+    // Get counts
+    const poolIds = commissionedPools.map(p => p.id);
+    
+    const memberCounts = poolIds.length > 0 ? await db.select({
+      poolId: poolMembers.poolId,
+      count: count(),
+    })
+      .from(poolMembers)
+      .where(inArray(poolMembers.poolId, poolIds))
+      .groupBy(poolMembers.poolId) : [];
+    
+    const itemCounts = poolIds.length > 0 ? await db.select({
+      poolId: auctionItems.poolId,
+      count: count(),
+    })
+      .from(auctionItems)
+      .where(inArray(auctionItems.poolId, poolIds))
+      .groupBy(auctionItems.poolId) : [];
+
+    const memberCountMap = new Map(memberCounts.map(c => [c.poolId, c.count]));
+    const itemCountMap = new Map(itemCounts.map(c => [c.poolId, c.count]));
 
     const webUrl = process.env.WEB_URL || 'http://localhost:3000';
     
-    res.json(pools.map((pool) => ({
+    res.json(commissionedPools.map((pool) => ({
       ...pool,
-      memberCount: pool._count.members,
-      auctionItemCount: pool._count.auctionItems,
+      memberCount: memberCountMap.get(pool.id) || 0,
+      auctionItemCount: itemCountMap.get(pool.id) || 0,
       inviteLink: `${webUrl}/pools/join?code=${pool.inviteCode}`,
       myRole: 'COMMISSIONER',
     })));
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Get pools where user is commissioner
-poolsRouter.get('/commissioned', async (req, res, next) => {
-  try {
-    const pools = await prisma.pool.findMany({
-      where: { commissionerId: req.user!.id },
-      include: {
-        tournament: {
-          select: { id: true, name: true, year: true, status: true },
-        },
-        _count: {
-          select: {
-            members: true,
-            auctionItems: true,
-          },
-        },
-      },
-      orderBy: { auctionStartTime: 'desc' },
-    });
-
-    res.json(
-      pools.map((p) => ({
-        ...p,
-        memberCount: p._count.members,
-        auctionItemCount: p._count.auctionItems,
-      }))
-    );
   } catch (error) {
     next(error);
   }
@@ -128,38 +129,51 @@ poolsRouter.get('/commissioned', async (req, res, next) => {
 poolsRouter.get('/discover', async (req, res, next) => {
   try {
     // Find public pools that are open or in draft/live and not full
-    const pools = await prisma.pool.findMany({
-      where: {
-        isPublic: true,
-        status: { in: ['DRAFT', 'OPEN', 'LIVE'] },
-      },
-      include: {
+    const publicPools = await db.query.pools.findMany({
+      where: and(
+        eq(pools.isPublic, true),
+        inArray(pools.status, ['DRAFT', 'OPEN', 'LIVE'])
+      ),
+      with: {
         commissioner: {
-          select: { id: true, displayName: true, avatarUrl: true },
+          columns: { id: true, displayName: true, avatarUrl: true },
         },
         tournament: {
-          select: { id: true, name: true, year: true, sport: true },
-        },
-        _count: {
-          select: { members: true },
+          columns: { id: true, name: true, year: true, sport: true },
         },
       },
-      orderBy: { auctionStartTime: 'asc' },
-      take: 50,
+      orderBy: asc(pools.auctionStartTime),
+      limit: 50,
     });
 
+    // Get member counts
+    const poolIds = publicPools.map(p => p.id);
+    const memberCounts = poolIds.length > 0 ? await db.select({
+      poolId: poolMembers.poolId,
+      count: count(),
+    })
+      .from(poolMembers)
+      .where(inArray(poolMembers.poolId, poolIds))
+      .groupBy(poolMembers.poolId) : [];
+
+    const memberCountMap = new Map(memberCounts.map(c => [c.poolId, c.count]));
+
     // Filter out pools that are full
-    const availablePools = pools.filter((p) => {
+    const availablePools = publicPools.filter((p) => {
+      const memberCount = memberCountMap.get(p.id) || 0;
       if (p.maxParticipants === null) return true;
-      return p._count.members < p.maxParticipants;
+      return memberCount < p.maxParticipants;
     });
 
     res.json(
-      availablePools.map((p) => ({
-        ...p,
-        memberCount: p._count.members,
-        spotsRemaining: p.maxParticipants ? p.maxParticipants - p._count.members : null,
-      }))
+      availablePools.map((p) => {
+        const memberCount = memberCountMap.get(p.id) || 0;
+        return {
+          ...p,
+          memberCount,
+          spotsRemaining: p.maxParticipants ? p.maxParticipants - memberCount : null,
+        };
+      })
     );
   } catch (error) {
     next(error);
@@ -172,39 +186,39 @@ poolsRouter.get('/:id', async (req, res, next) => {
     const { id } = req.params;
 
     // Check if user is a member
-    const membership = await prisma.poolMember.findUnique({
-      where: { poolId_userId: { poolId: id, userId: req.user!.id } },
+    const membership = await db.query.poolMembers.findFirst({
+      where: and(eq(poolMembers.poolId, id), eq(poolMembers.userId, req.user!.id)),
     });
 
     if (!membership) {
       throw new AppError(403, 'You are not a member of this pool', 'NOT_MEMBER');
     }
 
-    const pool = await prisma.pool.findUnique({
-      where: { id },
-      include: {
+    const pool = await db.query.pools.findFirst({
+      where: eq(pools.id, id),
+      with: {
         commissioner: {
-          select: { id: true, displayName: true, avatarUrl: true },
+          columns: { id: true, displayName: true, avatarUrl: true },
         },
         tournament: {
-          select: { id: true, name: true, year: true, status: true },
+          columns: { id: true, name: true, year: true, status: true },
         },
         members: {
-          include: {
+          with: {
             user: {
-              select: { id: true, displayName: true, avatarUrl: true },
+              columns: { id: true, displayName: true, avatarUrl: true },
             },
           },
-          orderBy: { totalSpent: 'desc' },
+          orderBy: desc(poolMembers.totalSpent),
         },
         auctionItems: {
-          include: {
+          with: {
             team: true,
           },
-          orderBy: { order: 'asc' },
+          orderBy: asc(auctionItems.order),
         },
         payoutRules: {
-          orderBy: { order: 'asc' },
+          orderBy: asc(payoutRules.order),
         },
       },
     });
@@ -243,13 +257,13 @@ poolsRouter.post('/', validate(createPoolSchema), async (req, res, next) => {
       autoStartAuction,
       auctionBudget,
       budgetEnabled,
-      payoutRules 
+      payoutRules: payoutRulesData 
     } = req.body;
 
     // Verify tournament exists
-    const tournament = await prisma.tournament.findUnique({
-      where: { id: tournamentId },
-      include: { teams: true },
+    const tournament = await db.query.tournaments.findFirst({
+      where: eq(tournaments.id, tournamentId),
+      with: { teams: true },
     });
 
     if (!tournament) {
@@ -257,15 +271,14 @@ poolsRouter.post('/', validate(createPoolSchema), async (req, res, next) => {
     }
 
     // Validate payout rules if provided
-    if (payoutRules && payoutRules.length > 0) {
-      const totalPercentage = payoutRules.reduce((sum: number, r: { percentage: number }) => sum + r.percentage, 0);
+    if (payoutRulesData && payoutRulesData.length > 0) {
+      const totalPercentage = payoutRulesData.reduce((sum: number, r: { percentage: number }) => sum + r.percentage, 0);
       if (Math.abs(totalPercentage - 100) > 0.01) {
         throw new AppError(400, 'Payout percentages must sum to 100%', 'INVALID_PERCENTAGES');
       }
     }
 
     // If autoStartAuction is true, auctionStartTime is not required (use current time)
-    // Otherwise, auctionStartTime is required
     if (!autoStartAuction && !auctionStartTime) {
       throw new AppError(400, 'Auction start time is required when auto-start is disabled', 'MISSING_AUCTION_TIME');
     }
@@ -274,7 +287,7 @@ poolsRouter.post('/', validate(createPoolSchema), async (req, res, next) => {
     let inviteCode = generateInviteCode();
     let attempts = 0;
     while (attempts < 10) {
-      const existing = await prisma.pool.findUnique({ where: { inviteCode } });
+      const existing = await db.query.pools.findFirst({ where: eq(pools.inviteCode, inviteCode) });
       if (!existing) break;
       inviteCode = generateInviteCode();
       attempts++;
@@ -287,75 +300,116 @@ poolsRouter.post('/', validate(createPoolSchema), async (req, res, next) => {
       : new Date(auctionStartTime);
 
     // Determine remaining budget for commissioner
-    const commissionerBudget = budgetEnabled && auctionBudget != null ? auctionBudget : null;
+    const commissionerBudget = budgetEnabled && auctionBudget != null ? String(auctionBudget) : null;
 
-    // Create pool with commissioner membership
-    const pool = await prisma.pool.create({
-      data: {
-        name,
-        description,
-        commissionerId: req.user!.id,
-        buyIn,
-        maxParticipants,
-        auctionStartTime: effectiveAuctionStartTime,
-        tournamentId,
-        inviteCode,
-        secondaryMarketEnabled: secondaryMarketEnabled ?? true,
-        auctionMode: auctionMode || 'TRADITIONAL',
-        isPublic: isPublic ?? false,
-        autoStartAuction: autoStartAuction ?? false,
-        auctionBudget: auctionBudget ?? null,
-        budgetEnabled: budgetEnabled ?? false,
-        status: poolStatus,
-        members: {
-          create: {
-            userId: req.user!.id,
-            role: 'COMMISSIONER',
-            remainingBudget: commissionerBudget,
-          },
-        },
-        // Create auction items for all teams
-        auctionItems: {
-          create: tournament.teams.map((team, index) => ({
-            teamId: team.id,
-            order: index + 1,
-            startingBid: 1,
-          })),
-        },
-        // Create payout rules if provided
-        ...(payoutRules && payoutRules.length > 0 ? {
-          payoutRules: {
-            create: payoutRules.map((rule: { name: string; description?: string; percentage: number; trigger: string; triggerValue?: string }, index: number) => ({
-              name: rule.name,
-              description: rule.description,
-              percentage: rule.percentage,
-              trigger: rule.trigger,
-              triggerValue: rule.triggerValue,
-              order: index + 1,
-            })),
-          },
-        } : {}),
-      },
-      include: {
+    // Create pool
+    const now = new Date();
+    const insertValues = {
+      name,
+      description,
+      commissionerId: req.user!.id,
+      buyIn: String(buyIn),
+      maxParticipants,
+      auctionStartTime: effectiveAuctionStartTime,
+      tournamentId,
+      inviteCode,
+      secondaryMarketEnabled: secondaryMarketEnabled ?? true,
+      auctionMode: auctionMode || 'TRADITIONAL',
+      isPublic: isPublic ?? false,
+      autoStartAuction: autoStartAuction ?? false,
+      auctionBudget: auctionBudget ? String(auctionBudget) : null,
+      budgetEnabled: budgetEnabled ?? false,
+      status: poolStatus,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const [pool] = await db.insert(pools)
+      .values(insertValues)
+      .returning();
+
+    // Create commissioner membership
+    await db.insert(poolMembers).values({
+      poolId: pool.id,
+      userId: req.user!.id,
+      role: 'COMMISSIONER',
+      remainingBudget: commissionerBudget,
+      joinedAt: now,
+    });
+
+    // Create auction items for all teams
+    if (tournament.teams.length > 0) {
+      await db.insert(auctionItems).values(
+        tournament.teams.map((team, index) => ({
+          poolId: pool.id,
+          teamId: team.id,
+          order: index + 1,
+          startingBid: '1',
+          createdAt: now,
+          updatedAt: now,
+        }))
+      );
+
+      // If autoStartAuction is enabled and it's TRADITIONAL mode, activate the first item
+      // This makes the auction immediately active when users enter the draft room
+      if (autoStartAuction && (auctionMode || 'TRADITIONAL') === 'TRADITIONAL') {
+        const firstItem = await db.query.auctionItems.findFirst({
+          where: and(
+            eq(auctionItems.poolId, pool.id),
+            eq(auctionItems.order, 1)
+          ),
+        });
+        if (firstItem) {
+          await db.update(auctionItems)
+            .set({ status: 'ACTIVE' })
+            .where(eq(auctionItems.id, firstItem.id));
+        }
+      }
+    }
+
+    // Create payout rules if provided
+    if (payoutRulesData && payoutRulesData.length > 0) {
+      await db.insert(payoutRules).values(
+        payoutRulesData.map((rule: { name: string; description?: string; percentage: number; trigger: string; triggerValue?: string }, index: number) => ({
+          poolId: pool.id,
+          name: rule.name,
+          description: rule.description,
+          percentage: String(rule.percentage),
+          trigger: rule.trigger as typeof payoutRules.$inferInsert.trigger,
+          triggerValue: rule.triggerValue,
+          order: index + 1,
+          createdAt: now,
+        }))
+      );
+    }
+
+    // Fetch created pool with relations
+    const createdPool = await db.query.pools.findFirst({
+      where: eq(pools.id, pool.id),
+      with: {
         commissioner: {
-          select: { id: true, displayName: true, avatarUrl: true },
+          columns: { id: true, displayName: true, avatarUrl: true },
         },
         tournament: {
-          select: { id: true, name: true, year: true },
+          columns: { id: true, name: true, year: true },
         },
         payoutRules: {
-          orderBy: { order: 'asc' },
-        },
-        _count: {
-          select: { members: true, auctionItems: true },
+          orderBy: asc(payoutRules.order),
         },
       },
     });
 
+    // Get counts
+    const [memberCount] = await db.select({ count: count() })
+      .from(poolMembers)
+      .where(eq(poolMembers.poolId, pool.id));
+    const [itemCount] = await db.select({ count: count() })
+      .from(auctionItems)
+      .where(eq(auctionItems.poolId, pool.id));
+
     res.status(201).json({
-      ...pool,
-      memberCount: pool._count.members,
-      auctionItemCount: pool._count.auctionItems,
+      ...createdPool,
+      memberCount: memberCount?.count || 0,
+      auctionItemCount: itemCount?.count || 0,
       inviteLink: `${process.env.WEB_URL || 'http://localhost:3000'}/pools/join?code=${pool.inviteCode}`,
     });
   } catch (error) {
@@ -369,8 +423,8 @@ poolsRouter.patch('/:id', validate(updatePoolSchema), async (req, res, next) => 
     const { id } = req.params;
 
     // Check if user is commissioner
-    const pool = await prisma.pool.findUnique({
-      where: { id },
+    const pool = await db.query.pools.findFirst({
+      where: eq(pools.id, id),
     });
 
     if (!pool) {
@@ -392,23 +446,36 @@ poolsRouter.patch('/:id', validate(updatePoolSchema), async (req, res, next) => 
     }
 
     // Fields like secondaryMarketEnabled can be updated anytime
-    const updated = await prisma.pool.update({
-      where: { id },
-      data: req.body,
-      include: {
+    const [updated] = await db.update(pools)
+      .set({ ...req.body, updatedAt: new Date() })
+      .where(eq(pools.id, id))
+      .returning();
+
+    const updatedPool = await db.query.pools.findFirst({
+      where: eq(pools.id, id),
+      with: {
         commissioner: {
-          select: { id: true, displayName: true, avatarUrl: true },
+          columns: { id: true, displayName: true, avatarUrl: true },
         },
         tournament: {
-          select: { id: true, name: true, year: true },
-        },
-        _count: {
-          select: { members: true, auctionItems: true },
+          columns: { id: true, name: true, year: true },
         },
       },
     });
 
-    res.json(updated);
+    // Get counts
+    const [memberCount] = await db.select({ count: count() })
+      .from(poolMembers)
+      .where(eq(poolMembers.poolId, id));
+    const [itemCount] = await db.select({ count: count() })
+      .from(auctionItems)
+      .where(eq(auctionItems.poolId, id));
+
+    res.json({
+      ...updatedPool,
+      memberCount: memberCount?.count || 0,
+      auctionItemCount: itemCount?.count || 0,
+    });
   } catch (error) {
     next(error);
   }
@@ -419,29 +486,31 @@ poolsRouter.post('/join', validate(joinPoolSchema), async (req, res, next) => {
   try {
     const { inviteCode } = req.body;
 
-    const pool = await prisma.pool.findUnique({
-      where: { inviteCode },
-      include: {
-        _count: { select: { members: true } },
-      },
+    const pool = await db.query.pools.findFirst({
+      where: eq(pools.inviteCode, inviteCode),
     });
 
     if (!pool) {
       throw new AppError(404, 'Invalid invite code', 'INVALID_INVITE');
     }
 
+    // Get member count
+    const [memberCount] = await db.select({ count: count() })
+      .from(poolMembers)
+      .where(eq(poolMembers.poolId, pool.id));
+
     // Allow joining pools that are in DRAFT, OPEN, or LIVE status
     if (pool.status !== 'DRAFT' && pool.status !== 'OPEN' && pool.status !== 'LIVE') {
       throw new AppError(400, 'This pool is no longer accepting members', 'POOL_CLOSED');
     }
 
-    if (pool.maxParticipants && pool._count.members >= pool.maxParticipants) {
+    if (pool.maxParticipants && (memberCount?.count || 0) >= pool.maxParticipants) {
       throw new AppError(400, 'Pool is full', 'POOL_FULL');
     }
 
     // Check if already a member
-    const existing = await prisma.poolMember.findUnique({
-      where: { poolId_userId: { poolId: pool.id, userId: req.user!.id } },
+    const existing = await db.query.poolMembers.findFirst({
+      where: and(eq(poolMembers.poolId, pool.id), eq(poolMembers.userId, req.user!.id)),
     });
 
     if (existing) {
@@ -450,17 +519,15 @@ poolsRouter.post('/join', validate(joinPoolSchema), async (req, res, next) => {
 
     // Determine remaining budget for new member
     const memberBudget = pool.budgetEnabled && pool.auctionBudget != null 
-      ? Number(pool.auctionBudget) 
+      ? pool.auctionBudget 
       : null;
 
     // Add member with budget
-    await prisma.poolMember.create({
-      data: {
-        poolId: pool.id,
-        userId: req.user!.id,
-        role: 'MEMBER',
-        remainingBudget: memberBudget,
-      },
+    await db.insert(poolMembers).values({
+      poolId: pool.id,
+      userId: req.user!.id,
+      role: 'MEMBER',
+      remainingBudget: memberBudget,
     });
 
     res.json({
@@ -477,8 +544,8 @@ poolsRouter.post('/:id/leave', async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const membership = await prisma.poolMember.findUnique({
-      where: { poolId_userId: { poolId: id, userId: req.user!.id } },
+    const membership = await db.query.poolMembers.findFirst({
+      where: and(eq(poolMembers.poolId, id), eq(poolMembers.userId, req.user!.id)),
     });
 
     if (!membership) {
@@ -489,14 +556,13 @@ poolsRouter.post('/:id/leave', async (req, res, next) => {
       throw new AppError(400, 'Commissioners cannot leave their pools', 'IS_COMMISSIONER');
     }
 
-    const pool = await prisma.pool.findUnique({ where: { id } });
+    const pool = await db.query.pools.findFirst({ where: eq(pools.id, id) });
     if (pool?.status !== 'DRAFT' && pool?.status !== 'OPEN') {
       throw new AppError(400, 'Cannot leave pool after auction has started', 'AUCTION_STARTED');
     }
 
-    await prisma.poolMember.delete({
-      where: { poolId_userId: { poolId: id, userId: req.user!.id } },
-    });
+    await db.delete(poolMembers)
+      .where(and(eq(poolMembers.poolId, id), eq(poolMembers.userId, req.user!.id)));
 
     res.json({ message: 'Successfully left pool' });
   } catch (error) {
@@ -510,7 +576,7 @@ poolsRouter.put('/:id/payouts', validate(updatePayoutRulesSchema), async (req, r
     const { id } = req.params;
     const { rules } = req.body;
 
-    const pool = await prisma.pool.findUnique({ where: { id } });
+    const pool = await db.query.pools.findFirst({ where: eq(pools.id, id) });
 
     if (!pool) {
       throw new AppError(404, 'Pool not found', 'NOT_FOUND');
@@ -527,23 +593,23 @@ poolsRouter.put('/:id/payouts', validate(updatePayoutRulesSchema), async (req, r
     }
 
     // Delete existing rules and create new ones
-    await prisma.payoutRule.deleteMany({ where: { poolId: id } });
+    await db.delete(payoutRules).where(eq(payoutRules.poolId, id));
 
-    await prisma.payoutRule.createMany({
-      data: rules.map((rule: { name: string; description?: string; percentage: number; trigger: string; triggerValue?: string }, index: number) => ({
+    await db.insert(payoutRules).values(
+      rules.map((rule: { name: string; description?: string; percentage: number; trigger: string; triggerValue?: string }, index: number) => ({
         poolId: id,
         name: rule.name,
         description: rule.description,
-        percentage: rule.percentage,
-        trigger: rule.trigger,
+        percentage: String(rule.percentage),
+        trigger: rule.trigger as typeof payoutRules.$inferInsert.trigger,
         triggerValue: rule.triggerValue,
         order: index + 1,
-      })),
-    });
+      }))
+    );
 
-    const updatedRules = await prisma.payoutRule.findMany({
-      where: { poolId: id },
-      orderBy: { order: 'asc' },
+    const updatedRules = await db.query.payoutRules.findMany({
+      where: eq(payoutRules.poolId, id),
+      orderBy: asc(payoutRules.order),
     });
 
     res.json(updatedRules);
@@ -557,7 +623,7 @@ poolsRouter.post('/:id/open', async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const pool = await prisma.pool.findUnique({ where: { id } });
+    const pool = await db.query.pools.findFirst({ where: eq(pools.id, id) });
 
     if (!pool) {
       throw new AppError(404, 'Pool not found', 'NOT_FOUND');
@@ -571,10 +637,10 @@ poolsRouter.post('/:id/open', async (req, res, next) => {
       throw new AppError(400, 'Pool can only be opened from draft status', 'INVALID_STATUS');
     }
 
-    const updated = await prisma.pool.update({
-      where: { id },
-      data: { status: 'OPEN' },
-    });
+    const [updated] = await db.update(pools)
+      .set({ status: 'OPEN', updatedAt: new Date() })
+      .where(eq(pools.id, id))
+      .returning();
 
     res.json(updated);
   } catch (error) {
@@ -589,14 +655,11 @@ poolsRouter.delete('/:id', async (req, res, next) => {
     const { reason } = req.body || {};
 
     // Get pool with all related data
-    const pool = await prisma.pool.findUnique({
-      where: { id },
-      include: {
+    const pool = await db.query.pools.findFirst({
+      where: eq(pools.id, id),
+      with: {
         tournament: {
-          select: { name: true, year: true },
-        },
-        _count: {
-          select: { members: true },
+          columns: { name: true, year: true },
         },
       },
     });
@@ -609,32 +672,33 @@ poolsRouter.delete('/:id', async (req, res, next) => {
       throw new AppError(403, 'Only the commissioner can delete this pool', 'NOT_COMMISSIONER');
     }
 
+    // Get member count
+    const [memberCount] = await db.select({ count: count() })
+      .from(poolMembers)
+      .where(eq(poolMembers.poolId, id));
+
     // Archive to deleted pools history before deletion
-    await prisma.deletedPool.create({
-      data: {
-        originalPoolId: pool.id,
-        name: pool.name,
-        description: pool.description,
-        commissionerId: pool.commissionerId,
-        deletedStatus: pool.status,
-        buyIn: pool.buyIn,
-        totalPot: pool.totalPot,
-        maxParticipants: pool.maxParticipants,
-        auctionStartTime: pool.auctionStartTime,
-        tournamentId: pool.tournamentId,
-        tournamentName: pool.tournament.name,
-        tournamentYear: pool.tournament.year,
-        memberCount: pool._count.members,
-        auctionMode: pool.auctionMode,
-        isPublic: pool.isPublic,
-        deletionReason: reason || null,
-      },
+    await db.insert(deletedPools).values({
+      originalPoolId: pool.id,
+      name: pool.name,
+      description: pool.description,
+      commissionerId: pool.commissionerId,
+      deletedStatus: pool.status,
+      buyIn: pool.buyIn,
+      totalPot: pool.totalPot,
+      maxParticipants: pool.maxParticipants,
+      auctionStartTime: pool.auctionStartTime,
+      tournamentId: pool.tournamentId,
+      tournamentName: pool.tournament.name,
+      tournamentYear: pool.tournament.year,
+      memberCount: memberCount?.count || 0,
+      auctionMode: pool.auctionMode,
+      isPublic: pool.isPublic,
+      deletionReason: reason || null,
     });
 
     // Delete the pool (cascades to related records due to onDelete: Cascade)
-    await prisma.pool.delete({
-      where: { id },
-    });
+    await db.delete(pools).where(eq(pools.id, id));
 
     res.json({ 
       message: 'Pool deleted successfully',
@@ -650,40 +714,40 @@ poolsRouter.get('/:id/standings', async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const members = await prisma.poolMember.findMany({
-      where: { poolId: id },
-      include: {
+    const members = await db.query.poolMembers.findMany({
+      where: eq(poolMembers.poolId, id),
+      with: {
         user: {
-          select: { id: true, displayName: true, avatarUrl: true },
+          columns: { id: true, displayName: true, avatarUrl: true },
         },
       },
     });
 
     // Get ownerships for this pool
-    const ownerships = await prisma.ownership.findMany({
-      where: {
-        auctionItem: { poolId: id },
-      },
-      include: {
+    const poolOwnerships = await db.query.ownerships.findMany({
+      with: {
         auctionItem: {
-          include: {
+          with: {
             team: true,
           },
         },
       },
     });
 
+    // Filter to only ownerships for this pool (using auctionItem.poolId)
+    const filteredOwnerships = poolOwnerships.filter(o => o.auctionItem?.poolId === id);
+
     // Build standings
     const standings = members.map((m) => {
-      const userOwnerships = ownerships.filter((o) => o.userId === m.userId);
-      const teams = userOwnerships.map((o) => ({
+      const userOwnerships = filteredOwnerships.filter((o) => o.userId === m.userId);
+      const memberTeams = userOwnerships.map((o) => ({
         team: o.auctionItem.team,
         percentage: o.percentage,
         purchasePrice: o.purchasePrice,
         isEliminated: o.auctionItem.team.isEliminated,
       }));
 
-      const activeTeams = teams.filter((t) => !t.isEliminated).length;
+      const activeTeams = memberTeams.filter((t) => !t.isEliminated).length;
 
       return {
         user: m.user,
@@ -691,9 +755,9 @@ poolsRouter.get('/:id/standings', async (req, res, next) => {
         totalSpent: m.totalSpent,
         totalWinnings: m.totalWinnings,
         profit: Number(m.totalWinnings) - Number(m.totalSpent),
-        teams,
+        teams: memberTeams,
         activeTeams,
-        eliminatedTeams: teams.length - activeTeams,
+        eliminatedTeams: memberTeams.length - activeTeams,
       };
     });
 
@@ -705,4 +769,3 @@ poolsRouter.get('/:id/standings', async (req, res, next) => {
     next(error);
   }
 });
-

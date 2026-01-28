@@ -4,7 +4,6 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import {
-  Trophy,
   Home,
   Users,
   TrendingUp,
@@ -21,6 +20,7 @@ import {
   PanelLeftClose,
   PanelLeft,
 } from 'lucide-react';
+import { Logo } from '@/components/Logo';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/lib/auth-context';
 import { usePools, useUserBalance } from '@/lib/hooks';
@@ -93,9 +93,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           animate={{ opacity: 1, scale: 1 }}
           className="glass-panel flex items-center gap-4 relative z-10"
         >
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-accent-blue to-accent-gold flex items-center justify-center shadow-glass-glow">
-            <Trophy className="w-7 h-7 text-white" />
-          </div>
+          <Logo size="xl" className="shadow-glass-glow" />
           <div>
             <span className="text-xl font-semibold text-text-primary">Loading...</span>
             <div className="flex gap-1.5 mt-2">
@@ -236,9 +234,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               <Menu className="w-5 h-5" />
             </button>
             <Link href="/dashboard" className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-accent-blue to-accent-gold flex items-center justify-center">
-                <Trophy className="w-4 h-4 text-white" />
-              </div>
+              <Logo size="sm" />
               <span className="font-bold text-text-primary">Cutta</span>
             </Link>
             <div className="w-10" /> {/* Spacer for centering */}
@@ -289,9 +285,9 @@ function SidebarContent({
         <Link href="/dashboard" className="flex items-center gap-3 group">
           <motion.div
             whileHover={{ scale: 1.05, rotate: 3 }}
-            className="w-11 h-11 rounded-2xl bg-gradient-to-br from-accent-blue to-accent-gold flex items-center justify-center shadow-glass-glow flex-shrink-0"
+            className="flex-shrink-0"
           >
-            <Trophy className="w-6 h-6 text-white" />
+            <Logo size="lg" className="shadow-glass-glow" />
           </motion.div>
           <AnimatePresence>
             {!isCollapsed && (

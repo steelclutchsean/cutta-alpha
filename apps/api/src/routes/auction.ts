@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { prisma } from '@cutta/db';
+import { db, eq, and, inArray, asc, desc, pools, poolMembers, auctionItems, bids, ownerships, chatMessages, users, paymentMethods, sql } from '@cutta/db';
 import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { placeBidSchema } from '@cutta/shared';
@@ -26,8 +26,8 @@ auctionRouter.get('/:poolId/state', async (req, res, next) => {
     const { poolId } = req.params;
 
     // Verify membership
-    const membership = await prisma.poolMember.findUnique({
-      where: { poolId_userId: { poolId, userId: req.user!.id } },
+    const membership = await db.query.poolMembers.findFirst({
+      where: and(eq(poolMembers.poolId, poolId), eq(poolMembers.userId, req.user!.id)),
     });
 
     if (!membership) {
@@ -47,9 +47,9 @@ auctionRouter.post('/bid', validate(placeBidSchema), async (req, res, next) => {
     const { auctionItemId, amount } = req.body;
 
     // Get auction item and pool
-    const auctionItem = await prisma.auctionItem.findUnique({
-      where: { id: auctionItemId },
-      include: { pool: true },
+    const auctionItem = await db.query.auctionItems.findFirst({
+      where: eq(auctionItems.id, auctionItemId),
+      with: { pool: true },
     });
 
     if (!auctionItem) {
@@ -57,8 +57,8 @@ auctionRouter.post('/bid', validate(placeBidSchema), async (req, res, next) => {
     }
 
     // Verify membership
-    const membership = await prisma.poolMember.findUnique({
-      where: { poolId_userId: { poolId: auctionItem.poolId, userId: req.user!.id } },
+    const membership = await db.query.poolMembers.findFirst({
+      where: and(eq(poolMembers.poolId, auctionItem.poolId), eq(poolMembers.userId, req.user!.id)),
     });
 
     if (!membership) {
@@ -66,8 +66,11 @@ auctionRouter.post('/bid', validate(placeBidSchema), async (req, res, next) => {
     }
 
     // Verify user has payment method
-    const paymentMethod = await prisma.paymentMethod.findFirst({
-      where: { userId: req.user!.id, isDefault: true },
+    const paymentMethod = await db.query.paymentMethods.findFirst({
+      where: and(
+        eq(paymentMethods.userId, req.user!.id),
+        eq(paymentMethods.isDefault, true)
+      ),
     });
 
     if (!paymentMethod) {
@@ -95,8 +98,8 @@ auctionRouter.post('/:poolId/start', async (req, res, next) => {
   try {
     const { poolId } = req.params;
 
-    const pool = await prisma.pool.findUnique({
-      where: { id: poolId },
+    const pool = await db.query.pools.findFirst({
+      where: eq(pools.id, poolId),
     });
 
     if (!pool) {
@@ -112,9 +115,9 @@ auctionRouter.post('/:poolId/start', async (req, res, next) => {
     }
 
     // Get first item
-    const firstItem = await prisma.auctionItem.findFirst({
-      where: { poolId, status: 'PENDING' },
-      orderBy: { order: 'asc' },
+    const firstItem = await db.query.auctionItems.findFirst({
+      where: and(eq(auctionItems.poolId, poolId), eq(auctionItems.status, 'PENDING')),
+      orderBy: asc(auctionItems.order),
     });
 
     if (!firstItem) {
@@ -122,16 +125,14 @@ auctionRouter.post('/:poolId/start', async (req, res, next) => {
     }
 
     // Update pool status and activate first item
-    await prisma.$transaction([
-      prisma.pool.update({
-        where: { id: poolId },
-        data: { status: 'LIVE' },
-      }),
-      prisma.auctionItem.update({
-        where: { id: firstItem.id },
-        data: { status: 'ACTIVE' },
-      }),
-    ]);
+    await db.transaction(async (tx) => {
+      await tx.update(pools)
+        .set({ status: 'LIVE' })
+        .where(eq(pools.id, poolId));
+      await tx.update(auctionItems)
+        .set({ status: 'ACTIVE' })
+        .where(eq(auctionItems.id, firstItem.id));
+    });
 
     // Broadcast auction start
     const io: Server = req.app.get('io');
@@ -149,7 +150,7 @@ auctionRouter.post('/:poolId/pause', async (req, res, next) => {
   try {
     const { poolId } = req.params;
 
-    const pool = await prisma.pool.findUnique({ where: { id: poolId } });
+    const pool = await db.query.pools.findFirst({ where: eq(pools.id, poolId) });
 
     if (!pool) {
       throw new AppError(404, 'Pool not found', 'NOT_FOUND');
@@ -174,7 +175,7 @@ auctionRouter.post('/:poolId/resume', async (req, res, next) => {
   try {
     const { poolId } = req.params;
 
-    const pool = await prisma.pool.findUnique({ where: { id: poolId } });
+    const pool = await db.query.pools.findFirst({ where: eq(pools.id, poolId) });
 
     if (!pool) {
       throw new AppError(404, 'Pool not found', 'NOT_FOUND');
@@ -199,7 +200,7 @@ auctionRouter.post('/:poolId/next', async (req, res, next) => {
   try {
     const { poolId } = req.params;
 
-    const pool = await prisma.pool.findUnique({ where: { id: poolId } });
+    const pool = await db.query.pools.findFirst({ where: eq(pools.id, poolId) });
 
     if (!pool) {
       throw new AppError(404, 'Pool not found', 'NOT_FOUND');
@@ -210,43 +211,40 @@ auctionRouter.post('/:poolId/next', async (req, res, next) => {
     }
 
     // Get current active item
-    const currentItem = await prisma.auctionItem.findFirst({
-      where: { poolId, status: 'ACTIVE' },
+    const currentItem = await db.query.auctionItems.findFirst({
+      where: and(eq(auctionItems.poolId, poolId), eq(auctionItems.status, 'ACTIVE')),
     });
 
     if (currentItem) {
       // Mark as unsold if no bids
-      await prisma.auctionItem.update({
-        where: { id: currentItem.id },
-        data: {
+      await db.update(auctionItems)
+        .set({
           status: currentItem.winnerId ? 'SOLD' : 'UNSOLD',
           auctionedAt: new Date(),
-        },
-      });
+        })
+        .where(eq(auctionItems.id, currentItem.id));
     }
 
     // Get next pending item
-    const nextItem = await prisma.auctionItem.findFirst({
-      where: { poolId, status: 'PENDING' },
-      orderBy: { order: 'asc' },
+    const nextItem = await db.query.auctionItems.findFirst({
+      where: and(eq(auctionItems.poolId, poolId), eq(auctionItems.status, 'PENDING')),
+      orderBy: asc(auctionItems.order),
     });
 
     if (nextItem) {
-      await prisma.auctionItem.update({
-        where: { id: nextItem.id },
-        data: { status: 'ACTIVE' },
-      });
+      await db.update(auctionItems)
+        .set({ status: 'ACTIVE' })
+        .where(eq(auctionItems.id, nextItem.id));
     } else {
       // Auction complete - mark as COMPLETED so it no longer shows as live
-      await prisma.pool.update({
-        where: { id: poolId },
-        data: { status: 'COMPLETED' },
-      });
+      await db.update(pools)
+        .set({ status: 'COMPLETED', updatedAt: new Date() })
+        .where(eq(pools.id, poolId));
 
       const io: Server = req.app.get('io');
-      const pool = await prisma.pool.findUnique({ where: { id: poolId } });
+      const updatedPool = await db.query.pools.findFirst({ where: eq(pools.id, poolId) });
       io.to(`pool:${poolId}`).emit('auctionCompleted', {
-        totalRaised: pool?.totalPot,
+        totalRaised: updatedPool?.totalPot,
       });
     }
 
@@ -267,7 +265,7 @@ auctionRouter.put('/:poolId/order', async (req, res, next) => {
     const { poolId } = req.params;
     const { itemOrder } = req.body; // Array of { itemId, order }
 
-    const pool = await prisma.pool.findUnique({ where: { id: poolId } });
+    const pool = await db.query.pools.findFirst({ where: eq(pools.id, poolId) });
 
     if (!pool) {
       throw new AppError(404, 'Pool not found', 'NOT_FOUND');
@@ -283,14 +281,13 @@ auctionRouter.put('/:poolId/order', async (req, res, next) => {
     }
 
     // Update order for each item (only pending items)
-    await prisma.$transaction(
-      itemOrder.map(({ itemId, order }: { itemId: string; order: number }) =>
-        prisma.auctionItem.update({
-          where: { id: itemId, status: 'PENDING' },
-          data: { order },
-        })
-      )
-    );
+    await db.transaction(async (tx) => {
+      for (const { itemId, order } of itemOrder as { itemId: string; order: number }[]) {
+        await tx.update(auctionItems)
+          .set({ order })
+          .where(and(eq(auctionItems.id, itemId), eq(auctionItems.status, 'PENDING')));
+      }
+    });
 
     // Broadcast queue update
     const io: Server = req.app.get('io');
@@ -312,7 +309,7 @@ auctionRouter.post('/:poolId/wheel-spin/init', async (req, res, next) => {
   try {
     const { poolId } = req.params;
 
-    const pool = await prisma.pool.findUnique({ where: { id: poolId } });
+    const pool = await db.query.pools.findFirst({ where: eq(pools.id, poolId) });
 
     if (!pool) {
       throw new AppError(404, 'Pool not found', 'NOT_FOUND');
@@ -334,10 +331,9 @@ auctionRouter.post('/:poolId/wheel-spin/init', async (req, res, next) => {
     await initializeWheelSpinAuction(poolId, io);
 
     // Update pool status to LIVE
-    await prisma.pool.update({
-      where: { id: poolId },
-      data: { status: 'LIVE' },
-    });
+    await db.update(pools)
+      .set({ status: 'LIVE', updatedAt: new Date() })
+      .where(eq(pools.id, poolId));
 
     res.json({ message: 'Wheel spin auction initialized' });
   } catch (error) {
@@ -350,7 +346,7 @@ auctionRouter.post('/:poolId/wheel-spin/spin', async (req, res, next) => {
   try {
     const { poolId } = req.params;
 
-    const pool = await prisma.pool.findUnique({ where: { id: poolId } });
+    const pool = await db.query.pools.findFirst({ where: eq(pools.id, poolId) });
 
     if (!pool) {
       throw new AppError(404, 'Pool not found', 'NOT_FOUND');
@@ -374,7 +370,7 @@ auctionRouter.post('/:poolId/wheel-spin/complete', async (req, res, next) => {
   try {
     const { poolId } = req.params;
 
-    const pool = await prisma.pool.findUnique({ where: { id: poolId } });
+    const pool = await db.query.pools.findFirst({ where: eq(pools.id, poolId) });
 
     if (!pool) {
       throw new AppError(404, 'Pool not found', 'NOT_FOUND');
@@ -399,8 +395,8 @@ auctionRouter.get('/:poolId/wheel-spin/state', async (req, res, next) => {
     const { poolId } = req.params;
 
     // Verify membership
-    const membership = await prisma.poolMember.findUnique({
-      where: { poolId_userId: { poolId, userId: req.user!.id } },
+    const membership = await db.query.poolMembers.findFirst({
+      where: and(eq(poolMembers.poolId, poolId), eq(poolMembers.userId, req.user!.id)),
     });
 
     if (!membership) {
@@ -420,8 +416,8 @@ auctionRouter.get('/:poolId/wheel-spin/teams', async (req, res, next) => {
     const { poolId } = req.params;
 
     // Verify membership
-    const membership = await prisma.poolMember.findUnique({
-      where: { poolId_userId: { poolId, userId: req.user!.id } },
+    const membership = await db.query.poolMembers.findFirst({
+      where: and(eq(poolMembers.poolId, poolId), eq(poolMembers.userId, req.user!.id)),
     });
 
     if (!membership) {
@@ -429,13 +425,13 @@ auctionRouter.get('/:poolId/wheel-spin/teams', async (req, res, next) => {
     }
 
     // Get all pending auction items with team details
-    const pendingItems = await prisma.auctionItem.findMany({
-      where: { poolId, status: 'PENDING' },
-      include: { team: true },
-      orderBy: { order: 'asc' },
+    const pendingItems = await db.query.auctionItems.findMany({
+      where: and(eq(auctionItems.poolId, poolId), eq(auctionItems.status, 'PENDING')),
+      with: { team: true },
+      orderBy: asc(auctionItems.order),
     });
 
-    const teams = pendingItems.map(item => ({
+    const teamsList = pendingItems.map(item => ({
       id: item.team.id,
       name: item.team.name,
       shortName: item.team.shortName,
@@ -443,7 +439,7 @@ auctionRouter.get('/:poolId/wheel-spin/teams', async (req, res, next) => {
       region: item.team.region,
     }));
 
-    res.json({ teams });
+    res.json({ teams: teamsList });
   } catch (error) {
     next(error);
   }
@@ -454,16 +450,13 @@ auctionRouter.get('/:poolId/debug', async (req, res, next) => {
   try {
     const { poolId } = req.params;
 
-    const pool = await prisma.pool.findUnique({
-      where: { id: poolId },
-      select: {
+    const pool = await db.query.pools.findFirst({
+      where: eq(pools.id, poolId),
+      columns: {
         id: true,
         name: true,
         status: true,
         auctionMode: true,
-        _count: {
-          select: { auctionItems: true, members: true },
-        },
       },
     });
 
@@ -472,17 +465,24 @@ auctionRouter.get('/:poolId/debug', async (req, res, next) => {
     }
 
     // Get auction items grouped by status
-    const auctionItems = await prisma.auctionItem.groupBy({
-      by: ['status'],
-      where: { poolId },
-      _count: { status: true },
-    });
+    const statusCounts = await db.select({
+      status: auctionItems.status,
+      count: sql<number>`count(*)::int`,
+    })
+      .from(auctionItems)
+      .where(eq(auctionItems.poolId, poolId))
+      .groupBy(auctionItems.status);
+
+    // Get member count
+    const [memberCount] = await db.select({ count: sql<number>`count(*)::int` })
+      .from(poolMembers)
+      .where(eq(poolMembers.poolId, poolId));
 
     // Get all auction items for this pool
-    const allItems = await prisma.auctionItem.findMany({
-      where: { poolId },
-      select: { id: true, status: true, teamId: true },
-      take: 20,
+    const allItems = await db.query.auctionItems.findMany({
+      where: eq(auctionItems.poolId, poolId),
+      columns: { id: true, status: true, teamId: true },
+      limit: 20,
     });
 
     res.json({
@@ -491,10 +491,10 @@ auctionRouter.get('/:poolId/debug', async (req, res, next) => {
         name: pool.name,
         status: pool.status,
         auctionMode: pool.auctionMode,
-        totalAuctionItems: pool._count.auctionItems,
-        totalMembers: pool._count.members,
+        totalAuctionItems: statusCounts.reduce((sum, s) => sum + s.count, 0),
+        totalMembers: memberCount?.count || 0,
       },
-      auctionItemsByStatus: auctionItems,
+      auctionItemsByStatus: statusCounts,
       sampleItems: allItems,
     });
   } catch (error) {
@@ -508,8 +508,8 @@ auctionRouter.get('/:poolId/matchup-brief', async (req, res, next) => {
     const { poolId } = req.params;
 
     // Verify membership
-    const membership = await prisma.poolMember.findUnique({
-      where: { poolId_userId: { poolId, userId: req.user!.id } },
+    const membership = await db.query.poolMembers.findFirst({
+      where: and(eq(poolMembers.poolId, poolId), eq(poolMembers.userId, req.user!.id)),
     });
 
     if (!membership) {
@@ -532,7 +532,7 @@ auctionRouter.post('/:poolId/sell-now', async (req, res, next) => {
   try {
     const { poolId } = req.params;
 
-    const pool = await prisma.pool.findUnique({ where: { id: poolId } });
+    const pool = await db.query.pools.findFirst({ where: eq(pools.id, poolId) });
 
     if (!pool) {
       throw new AppError(404, 'Pool not found', 'NOT_FOUND');
@@ -543,8 +543,8 @@ auctionRouter.post('/:poolId/sell-now', async (req, res, next) => {
     }
 
     // Get current active item
-    const currentItem = await prisma.auctionItem.findFirst({
-      where: { poolId, status: 'ACTIVE' },
+    const currentItem = await db.query.auctionItems.findFirst({
+      where: and(eq(auctionItems.poolId, poolId), eq(auctionItems.status, 'ACTIVE')),
     });
 
     if (!currentItem) {
@@ -556,33 +556,29 @@ auctionRouter.post('/:poolId/sell-now', async (req, res, next) => {
     }
 
     // Mark as sold
-    await prisma.auctionItem.update({
-      where: { id: currentItem.id },
-      data: {
+    await db.update(auctionItems)
+      .set({
         status: 'SOLD',
         winningBid: currentItem.currentBid,
         winnerId: currentItem.currentBidderId,
         auctionedAt: new Date(),
-      },
-    });
+      })
+      .where(eq(auctionItems.id, currentItem.id));
 
     // Update member spending
-    await prisma.poolMember.update({
-      where: { poolId_userId: { poolId, userId: currentItem.currentBidderId } },
-      data: {
-        totalSpent: { increment: currentItem.currentBid },
-      },
-    });
+    await db.update(poolMembers)
+      .set({
+        totalSpent: sql`${poolMembers.totalSpent} + ${currentItem.currentBid}`,
+      })
+      .where(and(eq(poolMembers.poolId, poolId), eq(poolMembers.userId, currentItem.currentBidderId)));
 
     // Create ownership record
-    await prisma.ownership.create({
-      data: {
-        userId: currentItem.currentBidderId,
-        auctionItemId: currentItem.id,
-        percentage: 100,
-        purchasePrice: Number(currentItem.currentBid),
-        source: 'AUCTION',
-      },
+    await db.insert(ownerships).values({
+      userId: currentItem.currentBidderId,
+      auctionItemId: currentItem.id,
+      percentage: '100',
+      purchasePrice: currentItem.currentBid,
+      source: 'AUCTION',
     });
 
     // Broadcast state update
@@ -606,7 +602,7 @@ auctionRouter.post('/:poolId/start-item/:itemId', async (req, res, next) => {
   try {
     const { poolId, itemId } = req.params;
 
-    const pool = await prisma.pool.findUnique({ where: { id: poolId } });
+    const pool = await db.query.pools.findFirst({ where: eq(pools.id, poolId) });
 
     if (!pool) {
       throw new AppError(404, 'Pool not found', 'NOT_FOUND');
@@ -617,8 +613,8 @@ auctionRouter.post('/:poolId/start-item/:itemId', async (req, res, next) => {
     }
 
     // Check if there's already an active item
-    const activeItem = await prisma.auctionItem.findFirst({
-      where: { poolId, status: 'ACTIVE' },
+    const activeItem = await db.query.auctionItems.findFirst({
+      where: and(eq(auctionItems.poolId, poolId), eq(auctionItems.status, 'ACTIVE')),
     });
 
     if (activeItem) {
@@ -626,8 +622,8 @@ auctionRouter.post('/:poolId/start-item/:itemId', async (req, res, next) => {
     }
 
     // Get the item to start
-    const item = await prisma.auctionItem.findFirst({
-      where: { id: itemId, poolId, status: 'PENDING' },
+    const item = await db.query.auctionItems.findFirst({
+      where: and(eq(auctionItems.id, itemId), eq(auctionItems.poolId, poolId), eq(auctionItems.status, 'PENDING')),
     });
 
     if (!item) {
@@ -635,17 +631,15 @@ auctionRouter.post('/:poolId/start-item/:itemId', async (req, res, next) => {
     }
 
     // Activate the item
-    await prisma.auctionItem.update({
-      where: { id: itemId },
-      data: { status: 'ACTIVE' },
-    });
+    await db.update(auctionItems)
+      .set({ status: 'ACTIVE' })
+      .where(eq(auctionItems.id, itemId));
 
     // Update pool status if needed
     if (pool.status === 'OPEN') {
-      await prisma.pool.update({
-        where: { id: poolId },
-        data: { status: 'LIVE' },
-      });
+      await db.update(pools)
+        .set({ status: 'LIVE', updatedAt: new Date() })
+        .where(eq(pools.id, poolId));
     }
 
     // Broadcast state update
@@ -664,7 +658,7 @@ auctionRouter.post('/:poolId/revert/:itemId', async (req, res, next) => {
   try {
     const { poolId, itemId } = req.params;
 
-    const pool = await prisma.pool.findUnique({ where: { id: poolId } });
+    const pool = await db.query.pools.findFirst({ where: eq(pools.id, poolId) });
 
     if (!pool) {
       throw new AppError(404, 'Pool not found', 'NOT_FOUND');
@@ -675,8 +669,12 @@ auctionRouter.post('/:poolId/revert/:itemId', async (req, res, next) => {
     }
 
     // Get the item to revert
-    const item = await prisma.auctionItem.findFirst({
-      where: { id: itemId, poolId, status: { in: ['SOLD', 'UNSOLD'] } },
+    const item = await db.query.auctionItems.findFirst({
+      where: and(
+        eq(auctionItems.id, itemId),
+        eq(auctionItems.poolId, poolId),
+        inArray(auctionItems.status, ['SOLD', 'UNSOLD'])
+      ),
     });
 
     if (!item) {
@@ -686,45 +684,44 @@ auctionRouter.post('/:poolId/revert/:itemId', async (req, res, next) => {
     // If item was sold, refund the buyer
     if (item.status === 'SOLD' && item.winnerId && item.winningBid) {
       // Refund member spending
-      await prisma.poolMember.update({
-        where: { poolId_userId: { poolId, userId: item.winnerId } },
-        data: {
-          totalSpent: { decrement: item.winningBid },
-          remainingBudget: pool.budgetEnabled ? { increment: item.winningBid } : undefined,
-        },
-      });
+      const updateData: Record<string, unknown> = {
+        totalSpent: sql`${poolMembers.totalSpent} - ${item.winningBid}`,
+      };
+
+      if (pool.budgetEnabled) {
+        updateData.remainingBudget = sql`${poolMembers.remainingBudget} + ${item.winningBid}`;
+      }
+
+      await db.update(poolMembers)
+        .set(updateData)
+        .where(and(eq(poolMembers.poolId, poolId), eq(poolMembers.userId, item.winnerId)));
 
       // Delete ownership record
-      await prisma.ownership.deleteMany({
-        where: { auctionItemId: itemId },
-      });
+      await db.delete(ownerships).where(eq(ownerships.auctionItemId, itemId));
 
       // Update pool total pot
-      await prisma.pool.update({
-        where: { id: poolId },
-        data: {
-          totalPot: { decrement: item.winningBid },
-        },
-      });
+      await db.update(pools)
+        .set({
+          totalPot: sql`${pools.totalPot} - ${item.winningBid}`,
+          updatedAt: new Date(),
+        })
+        .where(eq(pools.id, poolId));
     }
 
     // Reset item to pending
-    await prisma.auctionItem.update({
-      where: { id: itemId },
-      data: {
+    await db.update(auctionItems)
+      .set({
         status: 'PENDING',
         currentBid: null,
         currentBidderId: null,
         winningBid: null,
         winnerId: null,
         auctionedAt: null,
-      },
-    });
+      })
+      .where(eq(auctionItems.id, itemId));
 
     // Delete all bids for this item
-    await prisma.bid.deleteMany({
-      where: { auctionItemId: itemId },
-    });
+    await db.delete(bids).where(eq(bids.auctionItemId, itemId));
 
     // Broadcast state update
     const io: Server = req.app.get('io');
@@ -743,7 +740,7 @@ auctionRouter.post('/:poolId/end', async (req, res, next) => {
   try {
     const { poolId } = req.params;
 
-    const pool = await prisma.pool.findUnique({ where: { id: poolId } });
+    const pool = await db.query.pools.findFirst({ where: eq(pools.id, poolId) });
 
     if (!pool) {
       throw new AppError(404, 'Pool not found', 'NOT_FOUND');
@@ -754,22 +751,19 @@ auctionRouter.post('/:poolId/end', async (req, res, next) => {
     }
 
     // Mark any active items as unsold
-    await prisma.auctionItem.updateMany({
-      where: { poolId, status: 'ACTIVE' },
-      data: { status: 'UNSOLD', auctionedAt: new Date() },
-    });
+    await db.update(auctionItems)
+      .set({ status: 'UNSOLD', auctionedAt: new Date() })
+      .where(and(eq(auctionItems.poolId, poolId), eq(auctionItems.status, 'ACTIVE')));
 
     // Mark remaining pending items as unsold
-    await prisma.auctionItem.updateMany({
-      where: { poolId, status: 'PENDING' },
-      data: { status: 'UNSOLD', auctionedAt: new Date() },
-    });
+    await db.update(auctionItems)
+      .set({ status: 'UNSOLD', auctionedAt: new Date() })
+      .where(and(eq(auctionItems.poolId, poolId), eq(auctionItems.status, 'PENDING')));
 
     // Update pool status
-    await prisma.pool.update({
-      where: { id: poolId },
-      data: { status: 'COMPLETED' },
-    });
+    await db.update(pools)
+      .set({ status: 'COMPLETED', updatedAt: new Date() })
+      .where(eq(pools.id, poolId));
 
     // Broadcast completion
     const io: Server = req.app.get('io');
@@ -792,7 +786,7 @@ auctionRouter.get('/:poolId/chat/muted', async (req, res, next) => {
   try {
     const { poolId } = req.params;
 
-    const pool = await prisma.pool.findUnique({ where: { id: poolId } });
+    const pool = await db.query.pools.findFirst({ where: eq(pools.id, poolId) });
 
     if (!pool) {
       throw new AppError(404, 'Pool not found', 'NOT_FOUND');
@@ -802,14 +796,11 @@ auctionRouter.get('/:poolId/chat/muted', async (req, res, next) => {
       throw new AppError(403, 'Only the commissioner can view muted users', 'NOT_COMMISSIONER');
     }
 
-    const mutedMembers = await prisma.poolMember.findMany({
-      where: {
-        poolId,
-        isMuted: true,
-      },
-      include: {
+    const mutedMembers = await db.query.poolMembers.findMany({
+      where: and(eq(poolMembers.poolId, poolId), eq(poolMembers.isMuted, true)),
+      with: {
         user: {
-          select: { id: true, displayName: true },
+          columns: { id: true, displayName: true },
         },
       },
     });
@@ -832,7 +823,7 @@ auctionRouter.post('/:poolId/chat/mute/:userId', async (req, res, next) => {
     const { poolId, userId } = req.params;
     const { duration } = req.body; // duration in minutes, undefined = permanent
 
-    const pool = await prisma.pool.findUnique({ where: { id: poolId } });
+    const pool = await db.query.pools.findFirst({ where: eq(pools.id, poolId) });
 
     if (!pool) {
       throw new AppError(404, 'Pool not found', 'NOT_FOUND');
@@ -850,13 +841,12 @@ auctionRouter.post('/:poolId/chat/mute/:userId', async (req, res, next) => {
     // Calculate mute expiry
     const mutedUntil = duration ? new Date(Date.now() + duration * 60 * 1000) : null;
 
-    await prisma.poolMember.update({
-      where: { poolId_userId: { poolId, userId } },
-      data: {
+    await db.update(poolMembers)
+      .set({
         isMuted: true,
         mutedUntil,
-      },
-    });
+      })
+      .where(and(eq(poolMembers.poolId, poolId), eq(poolMembers.userId, userId)));
 
     // Broadcast mute event
     const io: Server = req.app.get('io');
@@ -873,7 +863,7 @@ auctionRouter.post('/:poolId/chat/unmute/:userId', async (req, res, next) => {
   try {
     const { poolId, userId } = req.params;
 
-    const pool = await prisma.pool.findUnique({ where: { id: poolId } });
+    const pool = await db.query.pools.findFirst({ where: eq(pools.id, poolId) });
 
     if (!pool) {
       throw new AppError(404, 'Pool not found', 'NOT_FOUND');
@@ -883,13 +873,12 @@ auctionRouter.post('/:poolId/chat/unmute/:userId', async (req, res, next) => {
       throw new AppError(403, 'Only the commissioner can unmute users', 'NOT_COMMISSIONER');
     }
 
-    await prisma.poolMember.update({
-      where: { poolId_userId: { poolId, userId } },
-      data: {
+    await db.update(poolMembers)
+      .set({
         isMuted: false,
         mutedUntil: null,
-      },
-    });
+      })
+      .where(and(eq(poolMembers.poolId, poolId), eq(poolMembers.userId, userId)));
 
     // Broadcast unmute event
     const io: Server = req.app.get('io');
@@ -906,7 +895,7 @@ auctionRouter.delete('/:poolId/chat/message/:messageId', async (req, res, next) 
   try {
     const { poolId, messageId } = req.params;
 
-    const pool = await prisma.pool.findUnique({ where: { id: poolId } });
+    const pool = await db.query.pools.findFirst({ where: eq(pools.id, poolId) });
 
     if (!pool) {
       throw new AppError(404, 'Pool not found', 'NOT_FOUND');
@@ -917,13 +906,12 @@ auctionRouter.delete('/:poolId/chat/message/:messageId', async (req, res, next) 
     }
 
     // Soft delete the message
-    await prisma.chatMessage.update({
-      where: { id: messageId },
-      data: {
+    await db.update(chatMessages)
+      .set({
         isDeleted: true,
         deletedBy: req.user!.id,
-      },
-    });
+      })
+      .where(eq(chatMessages.id, messageId));
 
     // Broadcast delete event
     const io: Server = req.app.get('io');
@@ -934,4 +922,3 @@ auctionRouter.delete('/:poolId/chat/message/:messageId', async (req, res, next) 
     next(error);
   }
 });
-

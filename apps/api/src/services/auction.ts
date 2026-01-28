@@ -1,4 +1,4 @@
-import { prisma } from '@cutta/db';
+import { db, eq, and, or, asc, desc, inArray, sum, sql, pools, poolMembers, auctionItems, bids, teams, users, games } from '@cutta/db';
 import { Server } from 'socket.io';
 import { config } from '../config/index.js';
 import { processAuctionWin } from './payments.js';
@@ -17,8 +17,8 @@ const currentSpinParticipant: Map<string, number> = new Map();
  * Get current auction state for a pool
  */
 export async function getAuctionState(poolId: string): Promise<AuctionState> {
-  const pool = await prisma.pool.findUnique({
-    where: { id: poolId },
+  const pool = await db.query.pools.findFirst({
+    where: eq(pools.id, poolId),
   });
 
   if (!pool) {
@@ -26,54 +26,60 @@ export async function getAuctionState(poolId: string): Promise<AuctionState> {
   }
 
   // Get current active item
-  const currentItem = await prisma.auctionItem.findFirst({
-    where: { poolId, status: 'ACTIVE' },
-    include: {
+  const currentItem = await db.query.auctionItems.findFirst({
+    where: and(eq(auctionItems.poolId, poolId), eq(auctionItems.status, 'ACTIVE')),
+    with: {
       team: true,
       bids: {
-        orderBy: { amount: 'desc' },
-        take: 1,
-        include: {
+        orderBy: desc(bids.amount),
+        limit: 1,
+        with: {
           user: {
-            select: { id: true, displayName: true },
+            columns: { id: true, displayName: true },
           },
         },
       },
-      _count: {
-        select: { bids: true },
-      },
     },
   });
 
+  // Get bid count for current item
+  let currentItemBidCount = 0;
+  if (currentItem) {
+    const [bidCountResult] = await db.select({ count: sql<number>`count(*)::int` })
+      .from(bids)
+      .where(eq(bids.auctionItemId, currentItem.id));
+    currentItemBidCount = bidCountResult?.count || 0;
+  }
+
   // Get next pending items
-  const nextItems = await prisma.auctionItem.findMany({
-    where: { poolId, status: 'PENDING' },
-    include: {
+  const nextItems = await db.query.auctionItems.findMany({
+    where: and(eq(auctionItems.poolId, poolId), eq(auctionItems.status, 'PENDING')),
+    with: {
       team: true,
-      _count: { select: { bids: true } },
     },
-    orderBy: { order: 'asc' },
-    take: 5,
+    orderBy: asc(auctionItems.order),
+    limit: 5,
   });
 
   // Get completed items
-  const completedItems = await prisma.auctionItem.findMany({
-    where: { poolId, status: { in: ['SOLD', 'UNSOLD'] } },
-    include: {
+  const completedItems = await db.query.auctionItems.findMany({
+    where: and(
+      eq(auctionItems.poolId, poolId),
+      inArray(auctionItems.status, ['SOLD', 'UNSOLD'])
+    ),
+    with: {
       team: true,
-      _count: { select: { bids: true } },
     },
-    orderBy: { auctionedAt: 'desc' },
-    take: 10,
+    orderBy: desc(auctionItems.auctionedAt),
+    limit: 10,
   });
 
   // Calculate total raised
-  const totalRaised = await prisma.auctionItem.aggregate({
-    where: { poolId, status: 'SOLD' },
-    _sum: { winningBid: true },
-  });
+  const [totalRaisedResult] = await db.select({ sum: sum(auctionItems.winningBid) })
+    .from(auctionItems)
+    .where(and(eq(auctionItems.poolId, poolId), eq(auctionItems.status, 'SOLD')));
 
-  const formatItem = (item: typeof currentItem): AuctionItemWithDetails | null => {
+  const formatItem = (item: typeof currentItem, bidCount: number = 0): AuctionItemWithDetails | null => {
     if (!item) return null;
     return {
       id: item.id,
@@ -95,8 +101,8 @@ export async function getAuctionState(poolId: string): Promise<AuctionState> {
         region: item.team.region || '',
         logoUrl: item.team.logoUrl,
       },
-      currentBidder: item.bids?.[0]?.user || null,
-      bidCount: item._count.bids,
+      currentBidder: (item as any).bids?.[0]?.user || null,
+      bidCount,
     };
   };
 
@@ -114,11 +120,11 @@ export async function getAuctionState(poolId: string): Promise<AuctionState> {
   return {
     poolId,
     status,
-    currentItem: formatItem(currentItem),
-    nextItems: nextItems.map((item) => formatItem({ ...item, bids: [], _count: item._count }) as AuctionItemWithDetails),
-    completedItems: completedItems.map((item) => formatItem({ ...item, bids: [], _count: item._count }) as AuctionItemWithDetails),
+    currentItem: formatItem(currentItem, currentItemBidCount),
+    nextItems: nextItems.map((item) => formatItem({ ...item, bids: [] } as any, 0) as AuctionItemWithDetails),
+    completedItems: completedItems.map((item) => formatItem({ ...item, bids: [] } as any, 0) as AuctionItemWithDetails),
     timeRemaining: auctionTimeRemaining.get(poolId) || config.auction.timerDuration,
-    totalRaised: Number(totalRaised._sum.winningBid) || 0,
+    totalRaised: Number(totalRaisedResult?.sum) || 0,
   };
 }
 
@@ -133,9 +139,9 @@ export async function processAuctionBid(
   io: Server
 ): Promise<{ success: boolean; bid?: { id: string; amount: number } }> {
   // Get current item state and pool for budget check
-  const auctionItem = await prisma.auctionItem.findUnique({
-    where: { id: auctionItemId },
-    include: { team: true, pool: true },
+  const auctionItem = await db.query.auctionItems.findFirst({
+    where: eq(auctionItems.id, auctionItemId),
+    with: { team: true, pool: true },
   });
 
   if (!auctionItem) {
@@ -157,8 +163,8 @@ export async function processAuctionBid(
 
   // Check budget if enabled
   if (auctionItem.pool.budgetEnabled) {
-    const member = await prisma.poolMember.findUnique({
-      where: { poolId_userId: { poolId, userId } },
+    const member = await db.query.poolMembers.findFirst({
+      where: and(eq(poolMembers.poolId, poolId), eq(poolMembers.userId, userId)),
     });
 
     if (!member) {
@@ -176,27 +182,26 @@ export async function processAuctionBid(
   }
 
   // Create bid record
-  const bid = await prisma.bid.create({
-    data: {
+  const [bid] = await db.insert(bids)
+    .values({
       auctionItemId,
       userId,
-      amount,
-    },
-  });
+      amount: String(amount),
+    })
+    .returning();
 
   // Update auction item
-  await prisma.auctionItem.update({
-    where: { id: auctionItemId },
-    data: {
-      currentBid: amount,
+  await db.update(auctionItems)
+    .set({
+      currentBid: String(amount),
       currentBidderId: userId,
-    },
-  });
+    })
+    .where(eq(auctionItems.id, auctionItemId));
 
   // Get bidder info
-  const bidder = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { displayName: true },
+  const bidder = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+    columns: { displayName: true },
   });
 
   // Broadcast new bid
@@ -256,9 +261,9 @@ function resetAuctionTimer(poolId: string, io: Server) {
  * Process item sale when timer expires
  */
 async function processItemSale(poolId: string, io: Server) {
-  const activeItem = await prisma.auctionItem.findFirst({
-    where: { poolId, status: 'ACTIVE' },
-    include: {
+  const activeItem = await db.query.auctionItems.findFirst({
+    where: and(eq(auctionItems.poolId, poolId), eq(auctionItems.status, 'ACTIVE')),
+    with: {
       team: true,
       pool: true,
     },
@@ -268,31 +273,29 @@ async function processItemSale(poolId: string, io: Server) {
 
   if (activeItem.currentBidderId && activeItem.currentBid) {
     // Item sold - process payment
-    const winner = await prisma.user.findUnique({
-      where: { id: activeItem.currentBidderId },
-      select: { id: true, displayName: true },
+    const winner = await db.query.users.findFirst({
+      where: eq(users.id, activeItem.currentBidderId),
+      columns: { id: true, displayName: true },
     });
 
     // Update item status
-    await prisma.auctionItem.update({
-      where: { id: activeItem.id },
-      data: {
+    await db.update(auctionItems)
+      .set({
         status: 'SOLD',
         winningBid: activeItem.currentBid,
         winnerId: activeItem.currentBidderId,
         auctionedAt: new Date(),
-      },
-    });
+      })
+      .where(eq(auctionItems.id, activeItem.id));
 
     // Mark winning bid
-    await prisma.bid.updateMany({
-      where: {
-        auctionItemId: activeItem.id,
-        userId: activeItem.currentBidderId,
-        amount: activeItem.currentBid,
-      },
-      data: { isWinning: true },
-    });
+    await db.update(bids)
+      .set({ isWinning: true })
+      .where(and(
+        eq(bids.auctionItemId, activeItem.id),
+        eq(bids.userId, activeItem.currentBidderId),
+        eq(bids.amount, activeItem.currentBid)
+      ));
 
     // Process payment and create ownership
     await processAuctionWin(
@@ -303,32 +306,31 @@ async function processItemSale(poolId: string, io: Server) {
     );
 
     // Update pool total
-    await prisma.pool.update({
-      where: { id: poolId },
-      data: {
-        totalPot: { increment: activeItem.currentBid },
-      },
-    });
+    await db.update(pools)
+      .set({
+        totalPot: sql`${pools.totalPot} + ${activeItem.currentBid}`,
+        updatedAt: new Date(),
+      })
+      .where(eq(pools.id, poolId));
 
     // Get member to update budget
-    const member = await prisma.poolMember.findUnique({
-      where: { poolId_userId: { poolId, userId: activeItem.currentBidderId } },
+    const member = await db.query.poolMembers.findFirst({
+      where: and(eq(poolMembers.poolId, poolId), eq(poolMembers.userId, activeItem.currentBidderId)),
     });
 
     // Update member spending and deduct from budget if enabled
-    const updateData: { totalSpent: { increment: typeof activeItem.currentBid }; remainingBudget?: { decrement: typeof activeItem.currentBid } } = {
-      totalSpent: { increment: activeItem.currentBid },
+    const updateData: Record<string, unknown> = {
+      totalSpent: sql`${poolMembers.totalSpent} + ${activeItem.currentBid}`,
     };
 
     // Deduct from remaining budget if budgetEnabled and member has a budget
     if (activeItem.pool.budgetEnabled && member?.remainingBudget !== null) {
-      updateData.remainingBudget = { decrement: activeItem.currentBid };
+      updateData.remainingBudget = sql`${poolMembers.remainingBudget} - ${activeItem.currentBid}`;
     }
 
-    await prisma.poolMember.update({
-      where: { poolId_userId: { poolId, userId: activeItem.currentBidderId } },
-      data: updateData,
-    });
+    await db.update(poolMembers)
+      .set(updateData)
+      .where(and(eq(poolMembers.poolId, poolId), eq(poolMembers.userId, activeItem.currentBidderId)));
 
     // Broadcast sale
     io.to(`pool:${poolId}`).emit('itemSold', {
@@ -341,13 +343,12 @@ async function processItemSale(poolId: string, io: Server) {
     });
   } else {
     // Item unsold
-    await prisma.auctionItem.update({
-      where: { id: activeItem.id },
-      data: {
+    await db.update(auctionItems)
+      .set({
         status: 'UNSOLD',
         auctionedAt: new Date(),
-      },
-    });
+      })
+      .where(eq(auctionItems.id, activeItem.id));
   }
 
   // Broadcast updated state
@@ -393,18 +394,18 @@ function shuffleArray<T>(array: T[]): T[] {
  * Initialize wheel spin auction - shuffles teams and assigns to participants
  */
 export async function initializeWheelSpinAuction(poolId: string, io: Server): Promise<void> {
-  const pool = await prisma.pool.findUnique({
-    where: { id: poolId },
-    include: {
+  const pool = await db.query.pools.findFirst({
+    where: eq(pools.id, poolId),
+    with: {
       members: {
-        include: {
-          user: { select: { id: true, displayName: true } },
+        with: {
+          user: { columns: { id: true, displayName: true } },
         },
       },
       auctionItems: {
-        where: { status: 'PENDING' },
-        include: { team: true },
-        orderBy: { order: 'asc' },
+        where: eq(auctionItems.status, 'PENDING'),
+        with: { team: true },
+        orderBy: asc(auctionItems.order),
       },
     },
   });
@@ -413,14 +414,14 @@ export async function initializeWheelSpinAuction(poolId: string, io: Server): Pr
   if (pool.auctionMode !== 'WHEEL_SPIN') throw new Error('Pool is not configured for wheel spin auction');
 
   const members = pool.members.filter(m => m.role !== 'COMMISSIONER' || pool.members.length === 1);
-  const teams = pool.auctionItems.map(item => ({
+  const teamsList = pool.auctionItems.map(item => ({
     teamId: item.teamId,
     teamName: item.team.name,
     itemId: item.id,
   }));
 
   // Shuffle teams
-  const shuffledTeams = shuffleArray(teams);
+  const shuffledTeams = shuffleArray(teamsList);
 
   // Assign teams to participants in round-robin fashion
   const assignments: { teamId: string; userId: string; teamName: string; userName: string }[] = [];
@@ -441,7 +442,7 @@ export async function initializeWheelSpinAuction(poolId: string, io: Server): Pr
 
   // Broadcast initialization
   io.to(`pool:${poolId}`).emit('wheelSpinInitialized', {
-    totalTeams: teams.length,
+    totalTeams: teamsList.length,
     participants: members.map(m => ({
       id: m.userId,
       displayName: m.user.displayName,
@@ -464,14 +465,14 @@ export async function executeWheelSpin(poolId: string, io: Server): Promise<{
   spinIndex: number;
   totalSpins: number;
 }> {
-  let queue = wheelSpinQueues.get(poolId);
+  let queue: { teamId: string; userId: string }[] | undefined = wheelSpinQueues.get(poolId);
   let currentIndex = currentSpinParticipant.get(poolId) || 0;
 
   // First, always get pending items to know what's available
-  const pendingItems = await prisma.auctionItem.findMany({
-    where: { poolId, status: 'PENDING' },
-    include: { team: true },
-    orderBy: { order: 'asc' },
+  const pendingItems = await db.query.auctionItems.findMany({
+    where: and(eq(auctionItems.poolId, poolId), eq(auctionItems.status, 'PENDING')),
+    with: { team: true },
+    orderBy: asc(auctionItems.order),
   });
 
   // Check for no teams early
@@ -484,12 +485,12 @@ export async function executeWheelSpin(poolId: string, io: Server): Promise<{
   
   if (needsReinit) {
     // Get pool info
-    const pool = await prisma.pool.findUnique({
-      where: { id: poolId },
-      include: {
+    const pool = await db.query.pools.findFirst({
+      where: eq(pools.id, poolId),
+      with: {
         members: {
-          include: {
-            user: { select: { id: true, displayName: true } },
+          with: {
+            user: { columns: { id: true, displayName: true } },
           },
         },
       },
@@ -514,13 +515,13 @@ export async function executeWheelSpin(poolId: string, io: Server): Promise<{
     // Auto-reinitialize the queue
     console.log(`Initializing wheel spin queue for pool ${poolId} with ${pendingItems.length} pending teams and ${members.length} members`);
     
-    const teams = pendingItems.map(item => ({
+    const teamsList = pendingItems.map(item => ({
       teamId: item.teamId,
       teamName: item.team.name,
     }));
 
     // Shuffle teams
-    const shuffledTeams = shuffleArray(teams);
+    const shuffledTeams = shuffleArray(teamsList);
 
     // Assign teams to participants in round-robin fashion
     const assignments = shuffledTeams.map((team, index) => {
@@ -540,23 +541,27 @@ export async function executeWheelSpin(poolId: string, io: Server): Promise<{
 
     // Also ensure pool is LIVE
     if (pool.status === 'OPEN') {
-      await prisma.pool.update({
-        where: { id: poolId },
-        data: { status: 'LIVE' },
-      });
+      await db.update(pools)
+        .set({ status: 'LIVE', updatedAt: new Date() })
+        .where(eq(pools.id, poolId));
     }
+  }
+
+  // At this point queue is guaranteed to be defined (either from wheelSpinQueues or initialized above)
+  if (!queue) {
+    throw new Error('Queue initialization failed');
   }
 
   const assignment = queue[currentIndex];
 
   // Get team details
-  const team = await prisma.team.findUnique({
-    where: { id: assignment.teamId },
+  const team = await db.query.teams.findFirst({
+    where: eq(teams.id, assignment.teamId),
   });
 
-  const user = await prisma.user.findUnique({
-    where: { id: assignment.userId },
-    select: { id: true, displayName: true },
+  const user = await db.query.users.findFirst({
+    where: eq(users.id, assignment.userId),
+    columns: { id: true, displayName: true },
   });
 
   if (!team || !user) throw new Error('Team or user not found');
@@ -582,27 +587,24 @@ export async function executeWheelSpin(poolId: string, io: Server): Promise<{
   });
 
   // Update the auction item to ACTIVE and set the assigned user as first bidder
-  const auctionItem = await prisma.auctionItem.findFirst({
-    where: { poolId, teamId: team.id },
+  const auctionItem = await db.query.auctionItems.findFirst({
+    where: and(eq(auctionItems.poolId, poolId), eq(auctionItems.teamId, team.id)),
   });
 
   if (auctionItem) {
-    await prisma.auctionItem.update({
-      where: { id: auctionItem.id },
-      data: {
+    await db.update(auctionItems)
+      .set({
         status: 'ACTIVE',
         currentBidderId: user.id,
         currentBid: auctionItem.startingBid, // Start with starting bid for assigned user
-      },
-    });
+      })
+      .where(eq(auctionItems.id, auctionItem.id));
 
     // Create initial bid record
-    await prisma.bid.create({
-      data: {
-        auctionItemId: auctionItem.id,
-        userId: user.id,
-        amount: Number(auctionItem.startingBid),
-      },
+    await db.insert(bids).values({
+      auctionItemId: auctionItem.id,
+      userId: user.id,
+      amount: auctionItem.startingBid,
     });
   }
 
@@ -663,9 +665,9 @@ export function getWheelSpinState(poolId: string): {
  * Check if pool is in wheel spin mode
  */
 export async function isWheelSpinPool(poolId: string): Promise<boolean> {
-  const pool = await prisma.pool.findUnique({
-    where: { id: poolId },
-    select: { auctionMode: true },
+  const pool = await db.query.pools.findFirst({
+    where: eq(pools.id, poolId),
+    columns: { auctionMode: true },
   });
   return pool?.auctionMode === 'WHEEL_SPIN';
 }
@@ -674,25 +676,21 @@ export async function isWheelSpinPool(poolId: string): Promise<boolean> {
  * Get matchup brief for current auction item
  */
 export async function getMatchupBrief(poolId: string): Promise<string | null> {
-  const currentItem = await prisma.auctionItem.findFirst({
-    where: { poolId, status: 'ACTIVE' },
-    include: { team: true },
+  const currentItem = await db.query.auctionItems.findFirst({
+    where: and(eq(auctionItems.poolId, poolId), eq(auctionItems.status, 'ACTIVE')),
+    with: { team: true },
   });
 
   if (!currentItem) return null;
 
   // Find the game where this team is playing
-  const game = await prisma.game.findFirst({
-    where: {
-      OR: [
-        { team1Id: currentItem.teamId },
-        { team2Id: currentItem.teamId },
-      ],
-      status: 'SCHEDULED',
-    },
-    orderBy: { scheduledAt: 'asc' },
+  const game = await db.query.games.findFirst({
+    where: and(
+      or(eq(games.team1Id, currentItem.teamId), eq(games.team2Id, currentItem.teamId)),
+      eq(games.status, 'SCHEDULED')
+    ),
+    orderBy: asc(games.scheduledAt),
   });
 
   return game?.matchupBrief || null;
 }
-

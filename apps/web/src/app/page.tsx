@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { motion, Variants } from 'framer-motion';
-import { Trophy, Zap, TrendingUp, Users, Play, Shield } from 'lucide-react';
+import { Zap, TrendingUp, Users, Play, Shield, Award } from 'lucide-react';
+import { Logo } from '@/components/Logo';
 
 const features = [
   {
@@ -11,7 +12,7 @@ const features = [
     description: 'Real-time bidding with built-in streaming. Feel the energy of a live draft room.',
   },
   {
-    icon: Trophy,
+    icon: Award,
     title: 'Instant Payouts',
     description: 'Watch your balance update in real-time as your teams win.',
   },
@@ -52,22 +53,23 @@ const stagger: Variants = {
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen bg-dark-900">
+    <div className="min-h-screen bg-bg-primary">
+      {/* Liquid Glass Background */}
+      <div className="liquid-bg" />
+      
       {/* Navigation */}
-      <nav className="fixed top-0 left-0 right-0 z-50 glass">
+      <nav className="fixed top-0 left-0 right-0 z-50 glass-navbar">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-500 to-gold-500 flex items-center justify-center">
-                <Trophy className="w-5 h-5 text-dark-900" />
-              </div>
-              <span className="text-xl font-bold">Cutta</span>
+              <Logo size="sm" />
+              <span className="text-xl font-bold text-text-primary">Cutta</span>
             </div>
             <div className="flex items-center gap-4">
               <Link href="/login" className="btn-ghost">
                 Log in
               </Link>
-              <Link href="/signup" className="btn-primary">
+              <Link href="/signup" className="btn-solid-gold">
                 Get Started
               </Link>
             </div>
@@ -102,12 +104,12 @@ export default function HomePage() {
             >
               <span className="gradient-text">Calcutta Auctions</span>
               <br />
-              <span className="text-white">Reimagined</span>
+              <span className="text-text-primary">Reimagined</span>
             </motion.h1>
 
             <motion.p
               variants={fadeInUp}
-              className="text-xl text-dark-200 max-w-2xl mx-auto mb-10"
+              className="text-xl text-text-secondary max-w-2xl mx-auto mb-10"
             >
               The ultimate platform for March Madness pools. Live auctions with streaming,
               automatic payments, secondary market trading, and real-time payouts.
@@ -117,7 +119,7 @@ export default function HomePage() {
               variants={fadeInUp}
               className="flex flex-col sm:flex-row items-center justify-center gap-4"
             >
-              <Link href="/signup" className="btn-primary text-lg px-8 py-3">
+              <Link href="/signup" className="btn-solid-gold text-lg px-8 py-3">
                 Create Your Pool
               </Link>
               <Link href="/pools" className="btn-outline text-lg px-8 py-3">
@@ -144,7 +146,7 @@ export default function HomePage() {
                 className="card text-center"
                 style={{ animationDelay: `${index * 100}ms` }}
               >
-                <div className="stat-value text-primary-400">{stat.value}</div>
+                <div className="stat-value text-accent-blue">{stat.value}</div>
                 <div className="stat-label">{stat.label}</div>
               </div>
             ))}
@@ -153,13 +155,13 @@ export default function HomePage() {
       </section>
 
       {/* Features Section */}
-      <section className="py-20 bg-dark-800">
+      <section className="py-20 bg-bg-secondary relative">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-4xl font-bold mb-4">
+            <h2 className="text-3xl sm:text-4xl font-bold text-text-primary mb-4">
               Everything You Need
             </h2>
-            <p className="text-dark-200 text-lg max-w-2xl mx-auto">
+            <p className="text-text-secondary text-lg max-w-2xl mx-auto">
               Built by pool commissioners, for pool commissioners. Every feature you wish
               you had in your last Calcutta.
             </p>
@@ -173,13 +175,13 @@ export default function HomePage() {
                 whileInView={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.1 }}
                 viewport={{ once: true }}
-                className="card-hover group"
+                className="glass-card-hover group"
               >
-                <div className="w-12 h-12 rounded-xl bg-primary-500/10 flex items-center justify-center mb-4 group-hover:bg-primary-500/20 transition-colors">
-                  <feature.icon className="w-6 h-6 text-primary-400" />
+                <div className="w-12 h-12 rounded-xl bg-accent-blue/10 flex items-center justify-center mb-4 group-hover:bg-accent-blue/20 transition-colors">
+                  <feature.icon className="w-6 h-6 text-accent-blue" />
                 </div>
-                <h3 className="text-xl font-semibold mb-2">{feature.title}</h3>
-                <p className="text-dark-300">{feature.description}</p>
+                <h3 className="text-xl font-semibold text-text-primary mb-2">{feature.title}</h3>
+                <p className="text-text-tertiary">{feature.description}</p>
               </motion.div>
             ))}
           </div>
@@ -187,21 +189,21 @@ export default function HomePage() {
       </section>
 
       {/* CTA Section */}
-      <section className="py-20 bg-gradient-to-b from-dark-800 to-dark-900">
+      <section className="py-20 bg-gradient-to-b from-bg-secondary to-bg-primary relative">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             whileInView={{ opacity: 1, scale: 1 }}
             viewport={{ once: true }}
           >
-            <h2 className="text-3xl sm:text-4xl font-bold mb-6">
+            <h2 className="text-3xl sm:text-4xl font-bold text-text-primary mb-6">
               Ready to Run Your Pool?
             </h2>
-            <p className="text-dark-200 text-lg mb-8">
+            <p className="text-text-secondary text-lg mb-8">
               Join thousands of commissioners who&apos;ve upgraded their Calcutta experience.
               Set up takes minutes.
             </p>
-            <Link href="/signup" className="btn-gold text-lg px-8 py-3">
+            <Link href="/signup" className="btn-solid-gold text-lg px-8 py-3">
               Get Started Free
             </Link>
           </motion.div>
@@ -209,28 +211,26 @@ export default function HomePage() {
       </section>
 
       {/* Footer */}
-      <footer className="py-12 bg-dark-900 border-t border-dark-700">
+      <footer className="py-12 bg-bg-primary border-t border-glass-border relative">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded bg-gradient-to-br from-primary-500 to-gold-500 flex items-center justify-center">
-                <Trophy className="w-4 h-4 text-dark-900" />
-              </div>
-              <span className="font-bold">Cutta</span>
+              <Logo size="xs" />
+              <span className="font-bold text-text-primary">Cutta</span>
             </div>
-            <div className="flex items-center gap-6 text-sm text-dark-400">
-              <Link href="/terms" className="hover:text-white transition-colors">
+            <div className="flex items-center gap-6 text-sm text-text-quaternary">
+              <Link href="/terms" className="hover:text-text-primary transition-colors">
                 Terms
               </Link>
-              <Link href="/privacy" className="hover:text-white transition-colors">
+              <Link href="/privacy" className="hover:text-text-primary transition-colors">
                 Privacy
               </Link>
-              <Link href="/support" className="hover:text-white transition-colors">
+              <Link href="/support" className="hover:text-text-primary transition-colors">
                 Support
               </Link>
             </div>
-            <div className="text-sm text-dark-400">
-              © 2024 Cutta. All rights reserved.
+            <div className="text-sm text-text-quaternary">
+              © 2026 Cutta. All rights reserved.
             </div>
           </div>
         </div>

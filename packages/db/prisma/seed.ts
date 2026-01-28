@@ -1,19 +1,36 @@
-import { PrismaClient, Sport, TournamentStatus, PayoutTrigger, PoolStatus, AuctionItemStatus, OwnershipSource } from '@prisma/client';
+import { 
+  db, 
+  eq, 
+  and, 
+  inArray, 
+  users, 
+  tournaments, 
+  teams, 
+  pools, 
+  poolMembers, 
+  auctionItems, 
+  ownerships, 
+  payoutRules, 
+  listings, 
+  bids, 
+  chatMessages 
+} from '../src/index.js';
 import bcrypt from 'bcrypt';
 import { NCAA_TEAM_LOGOS } from './team-logos.js';
 
-const prisma = new PrismaClient();
+// Type for payout trigger
+type PayoutTrigger = 'CHAMPIONSHIP_WIN' | 'FINAL_FOUR' | 'ELITE_EIGHT' | 'SWEET_SIXTEEN' | 'ROUND_OF_32' | 'ROUND_OF_64' | 'FIRST_FOUR' | 'UPSET_BONUS' | 'HIGHEST_SEED_WIN' | 'CUSTOM' | 'SUPER_BOWL_WIN' | 'CONFERENCE_CHAMPIONSHIP' | 'DIVISIONAL_ROUND' | 'WILD_CARD_WIN';
 
 // Demo password for all test accounts
 const DEMO_PASSWORD = 'demo123456';
 
 // Demo users
 const DEMO_USERS = [
-  { email: 'demo@cutta.io', displayName: 'Demo Commissioner', balance: 5000 },
-  { email: 'alex@cutta.io', displayName: 'Alex Thompson', balance: 2500 },
-  { email: 'jordan@cutta.io', displayName: 'Jordan Rivera', balance: 3200 },
-  { email: 'casey@cutta.io', displayName: 'Casey Williams', balance: 1800 },
-  { email: 'morgan@cutta.io', displayName: 'Morgan Davis', balance: 4100 },
+  { email: 'demo@cutta.io', displayName: 'Demo Commissioner', balance: '5000' },
+  { email: 'alex@cutta.io', displayName: 'Alex Thompson', balance: '2500' },
+  { email: 'jordan@cutta.io', displayName: 'Jordan Rivera', balance: '3200' },
+  { email: 'casey@cutta.io', displayName: 'Casey Williams', balance: '1800' },
+  { email: 'morgan@cutta.io', displayName: 'Morgan Davis', balance: '4100' },
 ];
 
 // March Madness 2025 teams (64 teams)
@@ -92,12 +109,12 @@ const MARCH_MADNESS_TEAMS = {
   ],
 };
 
-const DEFAULT_PAYOUT_RULES = [
-  { name: 'National Champion', trigger: PayoutTrigger.CHAMPIONSHIP_WIN, percentage: 40, order: 1 },
-  { name: 'Runner-up', trigger: PayoutTrigger.CHAMPIONSHIP_WIN, percentage: 15, order: 2, triggerValue: 'runner_up' },
-  { name: 'Final Four (each)', trigger: PayoutTrigger.FINAL_FOUR, percentage: 8, order: 3 },
-  { name: 'Elite Eight (each)', trigger: PayoutTrigger.ELITE_EIGHT, percentage: 4, order: 4 },
-  { name: 'Sweet Sixteen (each)', trigger: PayoutTrigger.SWEET_SIXTEEN, percentage: 1.5, order: 5 },
+const DEFAULT_PAYOUT_RULES: Array<{ name: string; trigger: PayoutTrigger; percentage: string; order: number; triggerValue?: string }> = [
+  { name: 'National Champion', trigger: 'CHAMPIONSHIP_WIN', percentage: '40', order: 1 },
+  { name: 'Runner-up', trigger: 'CHAMPIONSHIP_WIN', percentage: '15', order: 2, triggerValue: 'runner_up' },
+  { name: 'Final Four (each)', trigger: 'FINAL_FOUR', percentage: '8', order: 3 },
+  { name: 'Elite Eight (each)', trigger: 'ELITE_EIGHT', percentage: '4', order: 4 },
+  { name: 'Sweet Sixteen (each)', trigger: 'SWEET_SIXTEEN', percentage: '1.5', order: 5 },
 ];
 
 // Generate auction prices based on seed (higher seeds = higher prices)
@@ -121,95 +138,113 @@ async function main() {
   const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10);
 
   // Create demo users
-  const users: { id: string; email: string; displayName: string }[] = [];
+  const createdUsers: { id: string; email: string; displayName: string }[] = [];
   for (const userData of DEMO_USERS) {
-    const user = await prisma.user.upsert({
-      where: { email: userData.email },
-      update: {
-        passwordHash,
-        displayName: userData.displayName,
-        balance: userData.balance,
-      },
-      create: {
-        email: userData.email,
-        displayName: userData.displayName,
-        passwordHash,
-        balance: userData.balance,
-        kycVerified: true,
-      },
+    // Try to find existing user
+    const existing = await db.query.users.findFirst({
+      where: eq(users.email, userData.email),
     });
-    users.push(user);
-    console.log(`✅ Created user: ${user.email}`);
+
+    if (existing) {
+      // Update existing user
+      await db.update(users)
+        .set({
+          passwordHash,
+          displayName: userData.displayName,
+          balance: userData.balance,
+        })
+        .where(eq(users.id, existing.id));
+      createdUsers.push(existing);
+    } else {
+      // Create new user
+      const [user] = await db.insert(users)
+        .values({
+          email: userData.email,
+          displayName: userData.displayName,
+          passwordHash,
+          balance: userData.balance,
+          kycVerified: true,
+        })
+        .returning({ id: users.id, email: users.email, displayName: users.displayName });
+      createdUsers.push(user);
+    }
+    console.log(`✅ Created user: ${userData.email}`);
   }
 
-  const commissioner = users[0];
+  const commissioner = createdUsers[0];
 
-  // Create March Madness 2025 tournament
-  const tournament = await prisma.tournament.upsert({
-    where: { name_year: { name: 'March Madness', year: 2025 } },
-    update: {},
-    create: {
-      name: 'March Madness',
-      year: 2025,
-      sport: Sport.NCAA_BASKETBALL,
-      status: TournamentStatus.UPCOMING,
-      startDate: new Date('2025-03-18'),
-      endDate: new Date('2025-04-07'),
-    },
+  // Find or create March Madness 2025 tournament
+  let tournament = await db.query.tournaments.findFirst({
+    where: and(eq(tournaments.name, 'March Madness'), eq(tournaments.year, 2025)),
   });
+
+  if (!tournament) {
+    const [created] = await db.insert(tournaments)
+      .values({
+        name: 'March Madness',
+        year: 2025,
+        sport: 'NCAA_BASKETBALL',
+        status: 'UPCOMING',
+        startDate: new Date('2025-03-18'),
+        endDate: new Date('2025-04-07'),
+      })
+      .returning();
+    tournament = created;
+  }
 
   console.log(`✅ Created tournament: ${tournament.name} ${tournament.year}`);
 
   // Clean up existing data for this tournament to avoid duplicates
   // First, get all pools for this tournament
-  const existingPools = await prisma.pool.findMany({
-    where: { tournamentId: tournament.id },
-    select: { id: true },
+  const existingPools = await db.query.pools.findMany({
+    where: eq(pools.tournamentId, tournament.id),
+    columns: { id: true },
   });
   const poolIds = existingPools.map(p => p.id);
 
   // Delete in order of dependencies
   if (poolIds.length > 0) {
-    await prisma.listing.deleteMany({
-      where: { ownership: { auctionItem: { poolId: { in: poolIds } } } },
+    // We need to delete listings tied to ownerships, but we need auctionItem poolIds
+    // Let's get the auction items first
+    const existingAuctionItems = await db.query.auctionItems.findMany({
+      where: inArray(auctionItems.poolId, poolIds),
+      columns: { id: true },
     });
-    await prisma.ownership.deleteMany({
-      where: { auctionItem: { poolId: { in: poolIds } } },
-    });
-    await prisma.bid.deleteMany({
-      where: { auctionItem: { poolId: { in: poolIds } } },
-    });
-    await prisma.auctionItem.deleteMany({
-      where: { poolId: { in: poolIds } },
-    });
-    await prisma.payoutRule.deleteMany({
-      where: { poolId: { in: poolIds } },
-    });
-    await prisma.poolMember.deleteMany({
-      where: { poolId: { in: poolIds } },
-    });
-    await prisma.chatMessage.deleteMany({
-      where: { poolId: { in: poolIds } },
-    });
-    await prisma.pool.deleteMany({
-      where: { id: { in: poolIds } },
-    });
+    const auctionItemIds = existingAuctionItems.map(a => a.id);
+
+    if (auctionItemIds.length > 0) {
+      const existingOwnerships = await db.query.ownerships.findMany({
+        where: inArray(ownerships.auctionItemId, auctionItemIds),
+        columns: { id: true },
+      });
+      const ownershipIds = existingOwnerships.map(o => o.id);
+
+      if (ownershipIds.length > 0) {
+        await db.delete(listings).where(inArray(listings.ownershipId, ownershipIds));
+        await db.delete(ownerships).where(inArray(ownerships.id, ownershipIds));
+      }
+      await db.delete(bids).where(inArray(bids.auctionItemId, auctionItemIds));
+      await db.delete(auctionItems).where(inArray(auctionItems.id, auctionItemIds));
+    }
+
+    await db.delete(payoutRules).where(inArray(payoutRules.poolId, poolIds));
+    await db.delete(poolMembers).where(inArray(poolMembers.poolId, poolIds));
+    await db.delete(chatMessages).where(inArray(chatMessages.poolId, poolIds));
+    await db.delete(pools).where(inArray(pools.id, poolIds));
   }
 
   // Now delete teams
-  await prisma.team.deleteMany({
-    where: { tournamentId: tournament.id },
-  });
+  await db.delete(teams).where(eq(teams.tournamentId, tournament.id));
 
   // Create teams for each region
   let teamCount = 0;
   const allTeams: { id: string; name: string; seed: number; region: string }[] = [];
   
-  for (const [region, teams] of Object.entries(MARCH_MADNESS_TEAMS)) {
-    for (const team of teams) {
+  for (const [region, teamsList] of Object.entries(MARCH_MADNESS_TEAMS)) {
+    for (const team of teamsList) {
       const logoUrl = NCAA_TEAM_LOGOS[team.name] || null;
-      const created = await prisma.team.create({
-        data: {
+      const [created] = await db.insert(teams)
+        .values({
           tournamentId: tournament.id,
           name: team.name,
           shortName: team.shortName,
@@ -217,8 +252,8 @@ async function main() {
           region: region,
           logoUrl: logoUrl,
           externalId: `${region}-${team.seed}-2025`,
-        },
-      });
+        })
+        .returning();
       allTeams.push({
         id: created.id,
         name: created.name,
@@ -232,35 +267,33 @@ async function main() {
   console.log(`✅ Created ${teamCount} teams`);
 
   // Create the demo pool
-  const pool = await prisma.pool.create({
-    data: {
+  const [pool] = await db.insert(pools)
+    .values({
       name: 'March Madness 2025 - Demo Pool',
       description: 'A demo Calcutta auction pool for March Madness 2025. Auction completed - teams distributed!',
       commissionerId: commissioner.id,
-      buyIn: 50,
-      totalPot: 3200, // Approximate total from all auction sales
+      buyIn: '50',
+      totalPot: '3200', // Approximate total from all auction sales
       auctionStartTime: new Date('2025-03-10T19:00:00Z'),
       tournamentId: tournament.id,
       inviteCode: 'DEMO2025',
-      status: PoolStatus.IN_PROGRESS, // Auction completed, tournament ongoing
-    },
-  });
+      status: 'IN_PROGRESS', // Auction completed, tournament ongoing
+    })
+    .returning();
 
   console.log(`✅ Created demo pool: ${pool.name}`);
 
   // Add all users as pool members
-  for (let i = 0; i < users.length; i++) {
-    await prisma.poolMember.create({
-      data: {
-        poolId: pool.id,
-        userId: users[i].id,
-        role: i === 0 ? 'COMMISSIONER' : 'MEMBER',
-        totalSpent: 0, // Will update after creating ownerships
-      },
+  for (let i = 0; i < createdUsers.length; i++) {
+    await db.insert(poolMembers).values({
+      poolId: pool.id,
+      userId: createdUsers[i].id,
+      role: i === 0 ? 'COMMISSIONER' : 'MEMBER',
+      totalSpent: '0', // Will update after creating ownerships
     });
   }
 
-  console.log(`✅ Added ${users.length} pool members`);
+  console.log(`✅ Added ${createdUsers.length} pool members`);
 
   // Create auction items and distribute teams among users
   // Distribute teams round-robin style, with better teams going to different users
@@ -272,24 +305,24 @@ async function main() {
 
   for (let i = 0; i < sortedTeams.length; i++) {
     const team = sortedTeams[i];
-    const ownerIndex = i % users.length; // Round-robin distribution
-    const owner = users[ownerIndex];
+    const ownerIndex = i % createdUsers.length; // Round-robin distribution
+    const owner = createdUsers[ownerIndex];
     const price = generateAuctionPrice(team.seed);
 
-    const auctionItem = await prisma.auctionItem.create({
-      data: {
+    const [auctionItem] = await db.insert(auctionItems)
+      .values({
         poolId: pool.id,
         teamId: team.id,
-        status: AuctionItemStatus.SOLD,
-        startingBid: 1,
-        currentBid: price,
+        status: 'SOLD',
+        startingBid: '1',
+        currentBid: String(price),
         currentBidderId: owner.id,
-        winningBid: price,
+        winningBid: String(price),
         winnerId: owner.id,
         order: itemCount + 1,
         auctionedAt: new Date('2025-03-10T21:30:00Z'),
-      },
-    });
+      })
+      .returning();
 
     ownershipData.push({
       userId: owner.id,
@@ -305,44 +338,37 @@ async function main() {
 
   // Create ownership records
   for (const ownership of ownershipData) {
-    await prisma.ownership.create({
-      data: {
-        userId: ownership.userId,
-        auctionItemId: ownership.auctionItemId,
-        percentage: 100, // Full ownership from auction
-        purchasePrice: ownership.price,
-        source: OwnershipSource.AUCTION,
-      },
+    await db.insert(ownerships).values({
+      userId: ownership.userId,
+      auctionItemId: ownership.auctionItemId,
+      percentage: '100', // Full ownership from auction
+      purchasePrice: String(ownership.price),
+      source: 'AUCTION',
     });
   }
 
   console.log(`✅ Created ${ownershipData.length} ownership records`);
 
   // Update pool members' totalSpent
-  for (const user of users) {
+  for (const user of createdUsers) {
     const userSpent = ownershipData
       .filter(o => o.userId === user.id)
       .reduce((sum, o) => sum + o.price, 0);
     
-    await prisma.poolMember.update({
-      where: { poolId_userId: { poolId: pool.id, userId: user.id } },
-      data: { totalSpent: userSpent },
-    });
+    await db.update(poolMembers)
+      .set({ totalSpent: String(userSpent) })
+      .where(and(eq(poolMembers.poolId, pool.id), eq(poolMembers.userId, user.id)));
   }
 
   // Create payout rules
-  await prisma.payoutRule.deleteMany({ where: { poolId: pool.id } });
-  
   for (const rule of DEFAULT_PAYOUT_RULES) {
-    await prisma.payoutRule.create({
-      data: {
-        poolId: pool.id,
-        name: rule.name,
-        trigger: rule.trigger,
-        percentage: rule.percentage,
-        triggerValue: rule.triggerValue,
-        order: rule.order,
-      },
+    await db.insert(payoutRules).values({
+      poolId: pool.id,
+      name: rule.name,
+      trigger: rule.trigger,
+      percentage: rule.percentage,
+      triggerValue: rule.triggerValue,
+      order: rule.order,
     });
   }
 
@@ -350,30 +376,31 @@ async function main() {
 
   // Create some sample secondary market listings
   // Get some ownerships to list
-  const ownerships = await prisma.ownership.findMany({
-    where: { auctionItem: { poolId: pool.id } },
-    include: {
-      auctionItem: { include: { team: true } },
-      user: true,
+  const ownershipsList = await db.query.ownerships.findMany({
+    with: {
+      auctionItem: {
+        with: { team: true },
+      },
     },
-    take: 10,
+    limit: 10,
   });
 
+  // Filter to only those in our pool
+  const poolOwnerships = ownershipsList.filter(o => o.auctionItem?.poolId === pool.id);
+
   let listingCount = 0;
-  for (const ownership of ownerships.slice(0, 6)) {
+  for (const ownership of poolOwnerships.slice(0, 6)) {
     const markup = 1 + Math.random() * 0.5; // 0-50% markup
     const percentageForSale = [25, 50, 100][Math.floor(Math.random() * 3)];
     const askingPrice = Math.round(Number(ownership.purchasePrice) * markup * (percentageForSale / 100));
 
-    await prisma.listing.create({
-      data: {
-        ownershipId: ownership.id,
-        sellerId: ownership.userId,
-        percentageForSale,
-        askingPrice,
-        acceptingOffers: true,
-        status: 'ACTIVE',
-      },
+    await db.insert(listings).values({
+      ownershipId: ownership.id,
+      sellerId: ownership.userId,
+      percentageForSale: String(percentageForSale),
+      askingPrice: String(askingPrice),
+      acceptingOffers: true,
+      status: 'ACTIVE',
     });
     listingCount++;
   }
@@ -383,16 +410,16 @@ async function main() {
   // Summary
   console.log('\n🎉 Seed completed!');
   console.log('\n📊 Summary:');
-  console.log(`   - ${users.length} demo users created`);
+  console.log(`   - ${createdUsers.length} demo users created`);
   console.log(`   - ${teamCount} teams (64 total)`);
   console.log(`   - ${itemCount} teams auctioned and distributed`);
   console.log(`   - ${listingCount} market listings`);
   console.log('\n🔐 All accounts use password: demo123456');
   console.log('\n📧 Demo accounts:');
-  users.forEach((u, i) => {
-    const teamCount = ownershipData.filter(o => o.userId === u.id).length;
+  createdUsers.forEach((u, i) => {
+    const userTeamCount = ownershipData.filter(o => o.userId === u.id).length;
     const spent = ownershipData.filter(o => o.userId === u.id).reduce((sum, o) => sum + o.price, 0);
-    console.log(`   ${i === 0 ? '👑' : '👤'} ${u.email} - ${teamCount} teams, $${spent} spent`);
+    console.log(`   ${i === 0 ? '👑' : '👤'} ${u.email} - ${userTeamCount} teams, $${spent} spent`);
   });
 }
 
@@ -400,7 +427,4 @@ main()
   .catch((e) => {
     console.error('❌ Seed failed:', e);
     process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
   });

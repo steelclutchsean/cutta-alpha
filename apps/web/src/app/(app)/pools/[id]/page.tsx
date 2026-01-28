@@ -160,8 +160,8 @@ export default function PoolDetailPage() {
           className="card"
         >
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-dark-600">
-              <DollarSign className="w-5 h-5 text-dark-300" />
+            <div className="p-2 rounded-lg bg-gold-500/20">
+              <DollarSign className="w-5 h-5 text-gold-400" />
             </div>
             <div>
               <p className="text-sm text-dark-400">Buy-in</p>
@@ -177,8 +177,8 @@ export default function PoolDetailPage() {
           className="card"
         >
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-dark-600">
-              <Calendar className="w-5 h-5 text-dark-300" />
+            <div className="p-2 rounded-lg bg-primary-500/20">
+              <Calendar className="w-5 h-5 text-primary-400" />
             </div>
             <div>
               <p className="text-sm text-dark-400">Status</p>
@@ -382,26 +382,26 @@ export default function PoolDetailPage() {
               )}
               <Link
                 href={`/pools/${poolId}/standings`}
-                className="flex items-center justify-between p-3 bg-dark-700/50 rounded-lg hover:bg-dark-700 transition-colors"
+                className="flex items-center justify-between p-3 bg-white/5 border border-white/5 rounded-lg hover:bg-white/10 transition-colors"
               >
                 <span>View Standings</span>
-                <ChevronRight className="w-4 h-4 text-dark-400" />
+                <ChevronRight className="w-4 h-4 text-primary-400/60" />
               </Link>
               {isCommissioner && (
                 <Link
                   href={`/pools/${poolId}/settings`}
-                  className="flex items-center justify-between p-3 bg-dark-700/50 rounded-lg hover:bg-dark-700 transition-colors"
+                  className="flex items-center justify-between p-3 bg-white/5 border border-white/5 rounded-lg hover:bg-white/10 transition-colors"
                 >
                   <span>Pool Settings</span>
-                  <ChevronRight className="w-4 h-4 text-dark-400" />
+                  <ChevronRight className="w-4 h-4 text-primary-400/60" />
                 </Link>
               )}
               <Link
                 href="/my-teams"
-                className="flex items-center justify-between p-3 bg-dark-700/50 rounded-lg hover:bg-dark-700 transition-colors"
+                className="flex items-center justify-between p-3 bg-white/5 border border-white/5 rounded-lg hover:bg-white/10 transition-colors"
               >
                 <span>My Teams</span>
-                <ChevronRight className="w-4 h-4 text-dark-400" />
+                <ChevronRight className="w-4 h-4 text-primary-400/60" />
               </Link>
             </div>
           </div>

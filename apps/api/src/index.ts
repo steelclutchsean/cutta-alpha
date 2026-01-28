@@ -50,8 +50,8 @@ app.get('/health', async (req, res) => {
 
   // Check database
   try {
-    const { prisma } = await import('@cutta/db');
-    await prisma.$queryRaw`SELECT 1`;
+    const { db, sql } = await import('@cutta/db');
+    await db.execute(sql`SELECT 1`);
     health.checks.database = 'ok';
   } catch (error) {
     health.checks.database = 'error';

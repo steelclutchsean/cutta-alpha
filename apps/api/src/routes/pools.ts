@@ -294,7 +294,7 @@ poolsRouter.post('/', validate(createPoolSchema), async (req, res, next) => {
     }
 
     // Determine pool status and auction start time
-    const poolStatus = autoStartAuction ? 'LIVE' : 'DRAFT';
+    const poolStatus: 'LIVE' | 'DRAFT' = autoStartAuction ? 'LIVE' : 'DRAFT';
     const effectiveAuctionStartTime = autoStartAuction 
       ? new Date() 
       : new Date(auctionStartTime);

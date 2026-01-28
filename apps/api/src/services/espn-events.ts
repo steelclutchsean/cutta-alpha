@@ -138,7 +138,7 @@ export async function fetchESPNTeams(sport: string): Promise<ESPNTeamInfo[]> {
       throw new Error(`ESPN API error: ${response.status}`);
     }
     
-    const data = await response.json();
+    const data: any = await response.json();
     const teams = data.sports?.[0]?.leagues?.[0]?.teams || [];
     
     return teams.map((t: { team: ESPNTeamData }) => ({
@@ -179,7 +179,7 @@ export async function fetchPlayoffTeams(sport: string, year: number): Promise<ES
       throw new Error(`ESPN API error: ${response.status}`);
     }
     
-    const data = await response.json();
+    const data: any = await response.json();
     const events = data.events || [];
     
     // Extract unique teams from playoff games
@@ -233,7 +233,7 @@ async function fetchStandingsTeams(sport: string, year: number): Promise<ESPNTea
       return fetchESPNTeams(sport);
     }
     
-    const data = await response.json();
+    const data: any = await response.json();
     const standings = data.children || [];
     const teams: ESPNTeamInfo[] = [];
     
@@ -287,7 +287,7 @@ async function fetchTennisPlayers(year: number): Promise<ESPNTeamInfo[]> {
       return generateTennisPlaceholders();
     }
     
-    const data = await response.json();
+    const data: any = await response.json();
     const athletes = data.athletes || [];
     
     return athletes.slice(0, 128).map((athlete: any, index: number) => ({
@@ -332,7 +332,7 @@ export async function fetchMarchMadnessTeams(year: number): Promise<ESPNTeamInfo
       throw new Error(`ESPN API error: ${response.status}`);
     }
     
-    const data = await response.json();
+    const data: any = await response.json();
     const events = data.events || [];
     
     const teamMap = new Map<string, ESPNTeamInfo>();
@@ -392,7 +392,7 @@ async function fetchNCAABracketRankings(): Promise<ESPNTeamInfo[]> {
       return [];
     }
     
-    const data = await response.json();
+    const data: any = await response.json();
     const rankings = data.rankings?.[0]?.ranks || [];
     
     return rankings.slice(0, 68).map((entry: any) => ({

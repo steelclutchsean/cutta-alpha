@@ -38,6 +38,7 @@ export interface AuctionItemWithDetails extends AuctionItem {
   team: {
     id: string;
     name: string;
+    shortName: string;
     seed: number;
     region: string;
     logoUrl: string | null;

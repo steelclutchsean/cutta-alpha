@@ -600,7 +600,7 @@ export default function DraftRoomPage() {
             <CommissionerControls
               status={auctionState.status}
               isWheelSpinMode={isWheelSpinMode}
-              currentItem={currentItem}
+              currentItem={currentItem ?? null}
               isSpinning={isSpinning}
               wheelSpinTeamsCount={wheelSpinTeams.length}
               onAction={handleCommissionerAction}

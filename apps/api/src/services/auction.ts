@@ -97,6 +97,7 @@ export async function getAuctionState(poolId: string): Promise<AuctionState> {
       team: {
         id: item.team.id,
         name: item.team.name,
+        shortName: item.team.shortName || item.team.name,
         seed: item.team.seed || 0,
         region: item.team.region || '',
         logoUrl: item.team.logoUrl,

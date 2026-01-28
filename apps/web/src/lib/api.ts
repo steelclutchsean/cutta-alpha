@@ -531,7 +531,7 @@ export const tournamentsApi = {
   createFromEvent: (data: { sport: string; year: number; eventId?: string; eventName?: string }, token: string) =>
     fetchApi<CreateTournamentResponse>('/tournaments/events/create', {
       method: 'POST',
-      body: data,
+      body: JSON.stringify(data),
       token,
     }),
 };
